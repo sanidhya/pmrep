@@ -17,6 +17,8 @@ all: ${APPS}
 
 client_rd: ${BIN}
 
+server_rd: ${BIN}
+
 clean:
 	rm -f ${APPS} ${BIN}
 

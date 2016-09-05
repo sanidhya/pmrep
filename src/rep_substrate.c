@@ -625,8 +625,8 @@ static void init_metainfo(struct buf_metainfo *minfo, struct ibv_pd *pd,
     assert(minfo->mr);
 }
 
-static void allocate_structures(pmrep_ctx_t *pctx,
-                                uint8_t *buffer, size_t size)
+static void allocate_structures(pmrep_ctx_t *pctx, uint8_t *buffer,
+                                size_t size, int alloc_write_buffer)
 {
     int i;
 
@@ -659,8 +659,8 @@ static void allocate_structures(pmrep_ctx_t *pctx,
     }
 
     /* handling the meta info */
-    init_metainfo(&pctx->write_bufinfo, pctx->rcm.pd, 0, buffer,
-                  size, "Write", &pctx->remote_data[0]);
+    init_metainfo(&pctx->write_bufinfo, pctx->rcm.pd, alloc_write_buffer,
+                  buffer, size, "Write", &pctx->remote_data[0]);
     init_metainfo(&pctx->read_bufinfo, pctx->rcm.pd, 1, NULL,
                   L1D_CACHELINE_BYTES, "Read", &pctx->remote_data[1]);
     init_metainfo(&pctx->send_bufinfo, pctx->rcm.pd, 1, NULL,
@@ -676,8 +676,9 @@ static void allocate_structures(pmrep_ctx_t *pctx,
     pctx->recv_wr_bits = mem_alloc_pgalign(MAX_RECV_WR, "RECV wr bits");
 }
 
-static int setup_memory_region(pmrep_ctx_t *pctx,
-                               uint8_t *buffer, size_t buffer_size)
+/* client side */
+static int setup_memory_region_client(pmrep_ctx_t *pctx,
+                                      uint8_t *buffer, size_t buffer_size)
 {
     int ret = 0;
     struct rdma_conn_param cm_param;
@@ -691,7 +692,7 @@ static int setup_memory_region(pmrep_ctx_t *pctx,
     assert(pctx->rcm.pd != NULL);
 
     /* allocate memory for the reading */
-    allocate_structures(pctx, buffer, buffer_size);
+    allocate_structures(pctx, buffer, buffer_size, !buffer?1:0);
 
     /* completion channel */
     pctx->rcm.comp_channel = ibv_create_comp_channel(pctx->rcm.ctx);
@@ -775,13 +776,116 @@ int setup_region_client(pmrep_ctx_t *pctx, uint8_t *buffer, size_t buffer_size)
     assert(pctx->rcm.event->event == RDMA_CM_EVENT_ROUTE_RESOLVED);
     rdma_ack_cm_event(pctx->rcm.event);
 
-    ret = setup_memory_region(pctx, buffer, buffer_size);
+    ret = setup_memory_region_client(pctx, buffer, buffer_size);
     assert (ret == 0);
 
     dprintf("meta information setup done\n");
 
     return 0;
 }
+
+/* server side */
+void setup_memory_region_server(pmrep_ctx_t *pctx, size_t buffer_size)
+{
+    struct rdma_conn_param cm_param;
+    struct ibv_qp_init_attr qp_attr;
+    int ret = 0;
+
+    pctx->rcm.ctx = pctx->rcm.id->verbs;
+
+    pctx->rcm.pd = ibv_alloc_pd(pctx->rcm.ctx);
+    assert(pctx->rcm.pd != NULL);
+
+    allocate_structures(pctx, NULL, buffer_size, 1);
+
+    pctx->rcm.comp_channel = ibv_create_comp_channel(pctx->rcm.ctx);
+    assert(pctx->rcm.comp_channel != NULL);
+
+    /* completion queue */
+    pctx->rcm.send_cq = ibv_create_cq(pctx->rcm.ctx, NUM_CQES, NULL,
+                                      pctx->rcm.comp_channel, 0);
+    assert(pctx->rcm.send_cq != NULL);
+
+    pctx->rcm.recv_cq = ibv_create_cq(pctx->rcm.ctx, NUM_CQES, NULL,
+                                      pctx->rcm.comp_channel, 0);
+    assert(pctx->rcm.recv_cq != NULL);
+
+    setup_qp_attributes(&qp_attr, pctx);
+
+    /* creating the queue-pairs */
+    ret = rdma_create_qp(pctx->rcm.id, pctx->rcm.pd, &qp_attr);
+    assert(ret == 0);
+
+    pctx->rcm.qp = pctx->rcm.id->qp;
+    post_recv_wr(pctx, MAX_POST_RECVS, pctx->recv_bufinfo.size);
+
+    pctx->remote_data[0].buf_va = (uintptr_t)pctx->write_bufinfo.buffer;
+    pctx->remote_data[0].buf_rkey = pctx->write_bufinfo.mr->rkey;
+    pctx->remote_data[1].buf_va = (uintptr_t)pctx->read_bufinfo.buffer;
+    pctx->remote_data[1].buf_rkey = pctx->read_bufinfo.mr->rkey;
+    pctx->remote_data[2].buf_va = (uintptr_t)pctx->send_bufinfo.buffer;
+    pctx->remote_data[2].buf_rkey = pctx->send_bufinfo.mr->rkey;
+    pctx->remote_data[3].buf_va = (uintptr_t)pctx->recv_bufinfo.buffer;
+    pctx->remote_data[3].buf_rkey = pctx->recv_bufinfo.mr->rkey;
+
+    setup_cm_parameters(&cm_param);
+    cm_param.responder_resources = 1;
+    cm_param.private_data = pctx->remote_data;
+    cm_param.private_data_len = sizeof(pctx->remote_data);
+
+    ret = rdma_accept(pctx->rcm.id, &cm_param);
+    assert(ret == 0);
+
+    ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
+    assert(ret == 0);
+
+    assert(pctx->rcm.event->event == RDMA_CM_EVENT_ESTABLISHED);
+
+    rdma_ack_cm_event(pctx->rcm.event);
+
+    ibv_ack_cq_events(pctx->rcm.recv_cq, 1);
+}
+
+int setup_region_server(pmrep_ctx_t *pctx)
+{
+    struct sockaddr_in6 addr;
+    size_t buffer_size;
+    int ret = 0;
+    int port;
+
+    dprintf("setting up the meta information on the server side\n");
+
+    pctx->rcm.ec = rdma_create_event_channel();
+    assert(pctx->rcm.ec != NULL);
+
+    ret = rdma_create_id(pctx->rcm.ec, &pctx->rcm.sid, NULL, RDMA_PS_TCP);
+    assert(ret != -1);
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin6_family = AF_INET6;
+
+    ret = rdma_bind_addr(pctx->rcm.sid, (struct sockaddr *)&addr);
+    assert(ret != -1);
+
+    ret = rdma_listen(pctx->rcm.sid, SERVER_LISTEN_BACKLOG);
+    assert(ret != -1);
+
+    port = ntohs(rdma_get_src_port(pctx->rcm.sid));
+    buffer_size = server_setget_info(port);
+
+    ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
+    assert(ret == 0);
+
+    pctx->rcm.id = pctx->rcm.event->id;
+    rdma_ack_cm_event(pctx->rcm.event);
+
+    assert(pctx->rcm.event->event == RDMA_CM_EVENT_CONNECT_REQUEST);
+
+    setup_memory_region_server(pctx, buffer_size);
+
+    return 0;
+}
+
 
 static void dealloc_metainfo(struct buf_metainfo *minfo, int dealloc)
 {
@@ -803,6 +907,8 @@ void clear_region(pmrep_ctx_t *pctx, int free_buffer)
     ibv_destroy_comp_channel(pctx->rcm.comp_channel);
     ibv_dealloc_pd(pctx->rcm.pd);
     rdma_destroy_id(pctx->rcm.id);
+    if (pctx->rcm.sid)
+        rdma_destroy_id(pctx->rcm.sid);
     rdma_destroy_event_channel(pctx->rcm.ec);
 
     free(pctx->send_wrnodes);

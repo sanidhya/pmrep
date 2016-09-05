@@ -177,6 +177,7 @@ size_t server_setget_info(int port)
     struct sockaddr_in serv_addr;
     int lfd = 0, ret = 0, connfd;
     size_t buffer_size;
+    int conn_port = 20480;
 
     lfd = socket(AF_INET, SOCK_STREAM, 0);
     assert(lfd);
@@ -185,7 +186,7 @@ size_t server_setget_info(int port)
 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(port);
+    serv_addr.sin_port = htons(conn_port);
 
     ret = bind(lfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
     assert(ret == 0);

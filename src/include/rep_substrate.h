@@ -108,6 +108,7 @@ struct rdma_cm {
     struct rdma_event_channel   *ec;
     struct rdma_cm_event        *event;
     struct rdma_cm_id           *id;
+    struct rdma_cm_id           *sid;
 
     /* ib stuff */
     struct ibv_pd               *pd;
@@ -214,4 +215,6 @@ void persist_data_wread(pmrep_ctx_t *pctx);
 void persist_data_wsend(pmrep_ctx_t *pctx, persistence_t pt);
 void persist_data_with_complex_writes(pmrep_ctx_t *pctx, persistence_t pt);
 
+/* server side */
+int setup_region_server(pmrep_ctx_t *pctx);
 #endif /* __REP_SUBSTRATE_H_ */
