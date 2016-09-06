@@ -1,2 +1,5 @@
 client_rd
 server_rd
+server_sd
+client_wr_sd
+client_wr_rd
