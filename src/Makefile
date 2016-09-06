@@ -1,6 +1,6 @@
 CC := gcc
-CFLAGS  := -Wall -Werror #-fno-strict-aliasing
-LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread #-lgsl -lgslcblas -lm
+CFLAGS  := -Wall -Werror -fno-strict-aliasing
+LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread
 CFLAGS += -Iinclude
 
 ifeq ($(DEBUG),1)
