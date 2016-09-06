@@ -1,0 +1,12 @@
+Compile:
+=======
+
+To compile the code, go to the src directory and type:
+    $ make
+
+If, you want to run in log mode (aka debug mode), type:
+    $ DEBUG=1 make
+
+Following benchmarks are existing:
+1) write + read: client_wr_rd & server_rd
+2) write + send: client_wr_sd & server_sd
