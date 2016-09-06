@@ -23,16 +23,31 @@
  * Maximum number of outstanding WSs oin the SQ/RQ
  * XXX: generate conf and read it from there
  */
-#define MAX_SEND_WR         8192
+#define MAX_SEND_WR         10240
 #define MAX_RECV_WR         1024
 #define MAX_POST_RECVS      512
 
 /*
  * Maximum number of scatter / gatter elements in the SQ / RQ
  */
-#define MAX_SEND_SGES   4
+#define MAX_SEND_SGES   1
 #define MAX_RECV_SGES   MAX_SEND_SGES
 
+/* 0 - 1023 */
+#define RDMA_READ_WR_SID    0
+#define RDMA_READ_WR_EID    1024
+
+/* 1024 - 2047 */
+#define RDMA_SEND_WR_SID    RDMA_READ_WR_EID
+#define RDMA_SEND_WR_EID    (RDMA_SEND_WR_SID + (1024))
+
+/* 2048 - 10239 */
+#define RDMA_WRITE_WR_SID   RDMA_SEND_WR_EID
+#define RDMA_WRITE_WR_EID   (MAX_SEND_WR - RDMA_READ_WR_EID)
+
+/* 10240 - 11263 */
+#define RDMA_RECV_WR_SID    MAX_SEND_WR
+#define RDMA_RECV_WR_EID    (MAX_SEND_WR + MAX_RECV_WR)
 /*
  * max number of compound writes for sends
  */
@@ -131,7 +146,9 @@ struct buf_metainfo {
     /* pointer to the buf metainfo */
     struct remote_regdata *remote_data;
     /* associated wr ids in the form of linked list (optional) */
-    struct list_head wr_lhead;
+    struct list_head busy_lhead;
+    /* associated write requests */
+    struct list_head free_lhead;
 } ____cacheline_aligned;
 
 struct pm_stats {
@@ -180,11 +197,6 @@ typedef struct pmrep_ctx {
     /* max allowed wrs */
     uint64_t                max_wrs;
     uint64_t                recv_posted_count;
-
-    /* swr free list */
-    struct list_head        free_lhead_swr;
-    /* rwr free list */
-    struct list_head        free_lhead_rwr ____cacheline_aligned;
 
     /* two finegrained lock for sending and receiving */
     struct mcslock_t        swr_lock ____cacheline_aligned;
