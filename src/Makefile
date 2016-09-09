@@ -2,6 +2,7 @@ CC := gcc
 CFLAGS  := -Wall -Werror -fno-strict-aliasing
 LDLIBS  := ${LDLIBS} -lrdmacm -libverbs -lpthread
 CFLAGS += -Iinclude
+IBVCONF = include/config.h
 
 ifeq ($(DEBUG),1)
 	FLAGS = -O0 -DDPRINT -g -fno-inline
@@ -10,22 +11,32 @@ else
 endif
 CFLAGS += $(FLAGS)
 
-APPS := client_rd server_rd client_wr_rd client_wr_sd server_sd
-BIN := util.o rep_substrate.o
+APPS := server_rd client_wr_rd #client_wr_sd server_sd
 
-all: ${APPS}
+LIBSRC = lib/util.c lib/rep_substrate.c
+LIB = $(patsubst %.c, %.o, $(LIBSRC))
 
-client_rd: ${BIN}
+all: $(APPS) $(IBVCONF)
 
-server_rd: ${BIN}
+conf: $(IBVCONF)
 
-client_wr_rd: ${BIN}
+client_rd: $(LIB)
 
-client_wr_sd: ${BIN}
+server_rd: $(LIB)
 
-server_sd: ${BIN}
+client_wr_rd: $(LIB)
+
+client_wr_sd: $(LIB)
+
+server_sd: $(LIB)
+
+%.o: lib/%.c $(conf)
+	$(CC) $(CFLAGS) -c -o $@ $^
+
+include/config.h: getdevinfo.py
+	python $^ > $@
 
 clean:
-	rm -f ${APPS} ${BIN}
+	rm -f $(APPS) $(LIB) include/config.h
 
 .PHONY: clean all

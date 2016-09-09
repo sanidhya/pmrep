@@ -54,6 +54,7 @@ uint32_t rand32(uint32_t *seed);
 struct cmd_opt {
     char        *server_ip;
     char        *tcp_conn_port;
+    int         num_threads;
     uint32_t    iterations;
     size_t      buffer_size;
     int         allow_inlined_data;
@@ -80,11 +81,12 @@ uint64_t gethrtime(void);
  * will send the port info to the client side and will get the
  * buffer size info back from the client
  */
-size_t server_setget_info(int port);
+size_t server_setget_info(int port, int *num_threads, int *persist_with_reads);
 /*
  * will get the port info and send the buffer size info
  */
-int client_getset_info(size_t buffer_size, const char *server_ip);
+int client_getset_info(size_t buffer_size, const char *server_ip,
+                       int num_threads, int persist_with_reads);
 
 /* mcs lock implementation */
 struct mcsqnode_t {

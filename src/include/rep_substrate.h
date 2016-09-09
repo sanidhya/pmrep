@@ -3,13 +3,15 @@
 
 #include <pthread.h>
 #include <sys/types.h>
+#include <infiniband/arch.h>
+#include <rdma/rdma_cma.h>
 
 #include "arch.h"
 #include "list.h"
 #include "util.h"
+#include "config.h"
 
-#include <infiniband/arch.h>
-#include <rdma/rdma_cma.h>
+#include "config.h"
 
 /*
  * Number of backlogs allowed for the incoming
@@ -19,35 +21,16 @@
 
 #define NUM_CQES    (1 << 20)
 
-/*
- * Maximum number of outstanding WSs oin the SQ/RQ
- * XXX: generate conf and read it from there
- */
-#define MAX_SEND_WR         10240
-#define MAX_RECV_WR         1024
-#define MAX_POST_RECVS      512
+#define OPS_TYPE 4
 
 /*
  * Maximum number of scatter / gatter elements in the SQ / RQ
  */
 #define MAX_SEND_SGES   1
 #define MAX_RECV_SGES   MAX_SEND_SGES
+#define MAX_RECV_WRS    255
+#define MAX_PERSIST_WRS 255
 
-/* 0 - 1023 */
-#define RDMA_READ_WR_SID    0
-#define RDMA_READ_WR_EID    1024
-
-/* 1024 - 2047 */
-#define RDMA_SEND_WR_SID    RDMA_READ_WR_EID
-#define RDMA_SEND_WR_EID    (RDMA_SEND_WR_SID + (1024))
-
-/* 2048 - 10239 */
-#define RDMA_WRITE_WR_SID   RDMA_SEND_WR_EID
-#define RDMA_WRITE_WR_EID   (MAX_SEND_WR - RDMA_READ_WR_EID)
-
-/* 10240 - 11263 */
-#define RDMA_RECV_WR_SID    MAX_SEND_WR
-#define RDMA_RECV_WR_EID    (MAX_SEND_WR + MAX_RECV_WR)
 /*
  * max number of compound writes for sends
  */
@@ -174,59 +157,93 @@ struct pm_stats {
     uint64_t post_recv_count;
 } ____cacheline_aligned;
 
-typedef struct pmrep_ctx {
-    /* high level connection management */
-    struct rdma_cm          rcm;
+struct pmrep_ctx;
 
+struct thread_block {
     /* write buffer metainfo */
-    struct buf_metainfo     write_bufinfo ____cacheline_aligned;
+    struct buf_metainfo     flush_bufinfo ____cacheline_aligned;
     /* send buffer metainfo */
-    struct buf_metainfo     send_bufinfo ____cacheline_aligned;
+    struct buf_metainfo     persist_bufinfo ____cacheline_aligned;
     /* recv buffer metainfo */
     struct buf_metainfo     recv_bufinfo ____cacheline_aligned;
     /* read buffer metainfo */
     struct buf_metainfo     read_bufinfo ____cacheline_aligned;
 
+    uint64_t                recv_posted_count;
+    struct pmrep_ctx        *pctx;
+};
+
+struct ctrl_bufinfo {
+    struct ibv_send_wr  wr, *bad_wr;
+    struct ibv_sge      sge;
+    struct ibv_mr       *mr;
+    uint8_t             *buffer;
+    size_t              size;
+};
+
+typedef struct pmrep_ctx {
+    /* number of registered threads */
+    int32_t num_threads;
+
+    /* high level connection management */
+    struct rdma_cm          rcm;
+
+    /* thread block */
+    struct thread_block     *thread_blocks;
+
     /* remote mr and buffer pointer info */
-    struct remote_regdata  remote_data[4];
+    struct ctrl_bufinfo     ctrl_bufinfo;
+    struct remote_regdata   *remote_data;
 
     /* 1 to n mapping of work requests and sges */
-    struct swr_list_info    *send_wrnodes ____cacheline_aligned;
+    struct swr_list_info    *persist_wrnodes ____cacheline_aligned;
     struct rwr_list_info    *recv_wrnodes ____cacheline_aligned;
 
-    /* max allowed wrs */
-    uint64_t                max_wrs;
-    uint64_t                recv_posted_count;
-
-    /* two finegrained lock for sending and receiving */
-    struct mcslock_t        swr_lock ____cacheline_aligned;
-    struct mcslock_t        rwr_lock ____cacheline_aligned;
-
     /* publication list for the wce for send and receives */
-    uint8_t                 *persist_cq_bits ____cacheline_aligned;
-    uint8_t                 *recv_cq_bits ____cacheline_aligned;
     /*
      * used or set bits for wrs for send and receive
      * 0 -> data is not yet posted
      * 1 -> data has been posted but not removed
      */
-    uint8_t                 *persist_wr_bits ____cacheline_aligned;
-    uint8_t                 *recv_wr_bits ____cacheline_aligned;
+    uint8_t                 *persist_cq_bits ____cacheline_aligned;
+    uint8_t                 *recv_cq_bits ____cacheline_aligned;
+
+    /* common buffer that will be used by the writes */
+    uint8_t                 *common_buffer ____cacheline_aligned;
+
+    int                     persist_with_reads;
+
+    /* total recv wrs */
+    uint64_t                total_flush_wrs;
+    uint64_t                total_persist_wrs;
+    uint64_t                total_recv_wrs;
+    uint64_t                pt_flush_wrs;
+    uint64_t                pt_persist_wrs;
+    uint64_t                pt_recv_wrs;
 
 #ifdef DPRINT
     struct pm_stats         stats;
 #endif
 } pmrep_ctx_t ____cacheline_aligned;
 
-int setup_region_client(pmrep_ctx_t *pctx, uint8_t *buffer, size_t buffer_size);
+int setup_region_client(pmrep_ctx_t *pctx, uint8_t *buffer, size_t buffer_size,
+                        int num_threads, int persist_with_reads);
 void clear_region(pmrep_ctx_t *pctx, int free_buffer);
 
 void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
-                       size_t bytes, int lazy_write);
-void persist_data_wread(pmrep_ctx_t *pctx);
-void persist_data_wsend(pmrep_ctx_t *pctx, persistence_t pt);
-void persist_data_with_complex_writes(pmrep_ctx_t *pctx, persistence_t pt);
+                       size_t bytes, int lazy_write, int thread_id);
+void persist_data_wread(pmrep_ctx_t *pctx, int thread_id);
+void persist_data_wsend(pmrep_ctx_t *pctx, persistence_t pt, int thread_id);
+void persist_data_with_complex_writes(pmrep_ctx_t *pctx, persistence_t pt,
+                                      int thread_id);
 
 /* server side */
 int setup_region_server(pmrep_ctx_t *pctx);
+
+char *get_value(int value, struct error_name *name_array,
+                char *data, size_t size);
+char *get_pt_name(persistence_t pt, char *data);
+char *get_wr_status_name(int status, char *data, size_t size);
+char *get_cm_event_name(int event, char *data, size_t size);
+
 #endif /* __REP_SUBSTRATE_H_ */

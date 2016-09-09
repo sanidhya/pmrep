@@ -69,9 +69,11 @@ uint64_t usec(void)
 
 int parse_options(int argc, char *argv[], struct cmd_opt *opt)
 {
+    opt->num_threads = 1;
     static struct option options[] = {
         {"server",              required_argument, 0, 's'},
         {"port",                required_argument, 0, 'p'},
+        {"nthreads",            required_argument, 0, 'n'},
         {"iters",               required_argument, 0, 'j'},
         {"buffer_size",         required_argument, 0, 'b'},
         {"enable_inlining",     required_argument, 0, 'i'},
@@ -86,7 +88,7 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
     for (arg_cnt = 0; 1; ++arg_cnt) {
         int c, idx = 0;
         c = getopt_long(argc, argv,
-                        "s:p:j:b:i:c:m:w:l:", options, &idx);
+                        "s:p:n:j:b:i:c:m:w:l:", options, &idx);
         if (c == -1)
             break;
         switch(c) {
@@ -95,6 +97,9 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
             break;
         case 'p':
             opt->tcp_conn_port = optarg;
+            break;
+        case 'n':
+            opt->num_threads = atoi(optarg);
             break;
         case 'j':
             opt->iterations = atoi(optarg);
@@ -172,7 +177,7 @@ uint64_t gethrtime(void)
     return (tp.tv_sec * 1000000000LL) + tp.tv_nsec;
 }
 
-size_t server_setget_info(int port)
+size_t server_setget_info(int port, int *num_threads, int *persist_with_reads)
 {
     struct sockaddr_in serv_addr;
     int lfd = 0, ret = 0, connfd;
@@ -204,13 +209,20 @@ size_t server_setget_info(int port)
     ret = read(connfd, &buffer_size, sizeof(buffer_size));
     assert(ret == sizeof(buffer_size));
 
+    ret = read(connfd, num_threads, sizeof(int));
+    assert(ret == sizeof(int));
+
+    ret = read(connfd, persist_with_reads, sizeof(int));
+    assert(ret == sizeof(int));
+
     close(connfd);
     close(lfd);
 
     return buffer_size;
 }
 
-int client_getset_info(size_t buffer_size, const char *server_ip)
+int client_getset_info(size_t buffer_size, const char *server_ip,
+                       int num_threads, int persist_with_reads)
 {
     int sfd = 0;
     int port = 20480;
@@ -236,6 +248,12 @@ int client_getset_info(size_t buffer_size, const char *server_ip)
 
     ret = write(sfd, &buffer_size, sizeof(buffer_size));
     assert(ret == sizeof(buffer_size));
+
+    ret = write(sfd, &num_threads, sizeof(int));
+    assert(ret == sizeof(int));
+
+    ret = write(sfd, &persist_with_reads, sizeof(int));
+    assert(ret == sizeof(int));
 
     close(sfd);
     return port;

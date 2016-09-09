@@ -115,6 +115,98 @@ static inline void persist_data_remote(pmrep_ctx_t *pctx)
     assert(rwr_node->bad_wr == NULL);
 }
 
+#if 0
+static inline void clean_write_list(pmrep_ctx_t *pctx)
+{
+    struct buf_metainfo *minfo = &pctx->write_bufinfo;
+    struct swr_list_info *pos, *tmp;
+
+    list_for_each_entry_safe(pos, tmp, &minfo->busy_lhead, node) {
+        list_move_tail(&pos->node, &minfo->free_lhead);
+    }
+}
+
+static inline void free_lists(pmrep_ctx_t *pctx, uint64_t id)
+{
+    struct mcsqnode_t qnode = {};
+    struct swr_list_info *send_node = &pctx->send_wrnodes[id];
+
+    spin_lock(&pctx->swr_lock, &qnode);
+    clean_write_list(pctx);
+    list_move_tail(&send_node->node, &pctx->send_bufinfo.free_lhead);
+    spin_unlock(&pctx->swr_lock, &qnode);
+}
+
+static inline void flush_data_remote_list(pmrep_ctx_t *pctx,
+                                     uint8_t *buffer, size_t size, int n)
+{
+    struct buf_metainfo *minfo = &pctx->write_bufinfo;
+    struct pdlist *pdlist = (struct pdlist *)&pctx->send_bufinfo.buffer;
+    struct swr_list_info *pos, *tmp;
+    struct ibv_send_wr *wr = NULL;
+    struct ibv_sge *sge = NULL;
+    struct mcsqnode_t qnode = {};
+    off_t offset = (uintptr_t)buffer - (uintptr_t)minfo->buffer;
+    int ret = 0;
+    uint32_t elems = 0;
+
+    spin_lock(&pctx->swr_lock, &qnode);
+    list_for_each_entry_safe(pos, tmp, &minfo->free_lhead, node) {
+        list_move_tail(&pos->node, &minfo->busy_lhead);
+        break;
+    }
+
+    elems = pdlist->elems;
+    pdlist->elems++;
+    spin_unlock(&pctx->swr_lock, &qnode);
+
+    wr = &pos->wr;
+    sge = &pos->sge;
+    update_sge(sge, (uintptr_t)buffer, size, minfo->mr->lkey);
+    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, 0,
+                   minfo->remote_data->buf_va + offset,
+                   minfo->remote_data->buf_rkey);
+    ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
+    assert(ret == 0);
+    assert(pos->bad_wr == NULL);
+    pdlist->list[elems].ptr = minfo->remote_data->buf_va + offset;
+    pdlist->list[elems].len = size;
+}
+
+static inline void persist_data_remote_list(pmrep_ctx_t *pctx)
+{
+    struct swr_list_info *swr_node = &pctx->send_wrnodes[RDMA_SEND_WR_SID];
+    struct rwr_list_info *rwr_node = &pctx->recv_wrnodes[0];
+    struct ibv_send_wr *swr = &swr_node->wr;
+    struct ibv_recv_wr *rwr = &rwr_node->wr;
+    struct ibv_sge *ssge = &swr_node->sge, *rsge = &swr_node->sge;
+    struct pdlist *pdlist = (struct pdlist *)pctx->send_bufinfo.buffer;
+    int ret = 0;
+    size_t size = sizeof(struct pdentry) * pdlist->elems +
+        sizeof(pdlist->elems) + sizeof(persistence_t);
+
+    update_sge(ssge, (uintptr_t)pctx->send_bufinfo.buffer, size,
+               pctx->send_bufinfo.mr->lkey);
+    update_send_wr(swr, ssge, IBV_WR_SEND, IBV_SEND_SIGNALED, 0, 0);
+    ret = ibv_post_send(pctx->rcm.qp, swr, &swr_node->bad_wr);
+    assert(ret == 0);
+    assert(swr_node->bad_wr == NULL);
+
+    poll_cq(pctx->rcm.send_cq, pctx->persist_cq_bits, swr->wr_id);
+
+    update_sge(rsge, (uintptr_t)pctx->recv_bufinfo.buffer,
+               pctx->recv_bufinfo.size, pctx->recv_bufinfo.mr->lkey);
+    update_recv_wr(rwr, rsge);
+
+    pdlist->elems = 0;
+    poll_cq(pctx->rcm.recv_cq, pctx->recv_cq_bits, rwr->wr_id);
+
+    ret = ibv_post_recv(pctx->rcm.qp, rwr, &rwr_node->bad_wr);
+    assert(ret == 0);
+    assert(rwr_node->bad_wr == NULL);
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     uint8_t *buf = mem_alloc_pgalign(BUFFER_SIZE, "Write buffer");
@@ -170,7 +262,7 @@ int main(int argc, char *argv[])
     v = (double)wr_t / (double)(opt.iterations * opt.write_batch_count);
     v += ((double)rd_t / (double)(opt.iterations));
 
-    printf("avg total time: %lf\n", v);
+    printf("avg total time: %lf\n", v / 1000.0);
     printf("total time: %lf sec\n", (double)(wr_t + rd_t)/1000000000.0);
     return 0;
 }
