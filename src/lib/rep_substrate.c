@@ -323,12 +323,17 @@ inline void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
     off_t offset = (uintptr_t)addr - (uintptr_t)minfo->buffer;
     int ret = 0;
     uint64_t remote_addr = minfo->remote_data->buf_va + offset;
+    int write_signaled = 0;
 
 
     list_for_each_entry_safe(pos, tmp, &minfo->free_lhead, node) {
         list_move_tail(&pos->node, &minfo->busy_lhead);
         break;
     }
+
+    if (list_empty(&minfo->free_lhead))
+        write_signaled = 1;
+
     wr = &pos->wr;
     sge = &pos->sge;
     assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
@@ -344,11 +349,17 @@ inline void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
     }
 
     update_sge(sge, (uintptr_t)addr, bytes, minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, IBV_SEND_NOSIGNAL, remote_addr,
-                   minfo->remote_data->buf_rkey);
+    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE,
+                   write_signaled?IBV_SEND_SIGNALED:IBV_SEND_NOSIGNAL,
+                   remote_addr, minfo->remote_data->buf_rkey);
     ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
     assert(ret == 0);
     assert(pos->bad_wr == NULL);
+
+    if (write_signaled) {
+        poll_send_cq(pctx, wr->wr_id, thread_id);
+        clean_write_list(pctx, thread_id);
+    }
 }
 
 inline void persist_data_wread(pmrep_ctx_t *pctx, int thread_id)
