@@ -14,24 +14,18 @@ SCOREID=6
 
 for flush in ${flushes[@]}
 do
-    for cl in ${clatency[@]}
+    for core in ${cores[@]}
     do
-        for fl in ${flatency[@]}
+        for size in `cat writesize`
         do
-            for core in ${cores[@]}
-            do
-                for size in `cat writesize`
-                do
-                    # run the server
-                    ssh ${SERVER} "${SPATH} -t ${SCOREID}&" &
-                    sleep 2
-                    echo "write-batching: ${flush} clatency: ${cl} flatency: ${fl} cores: ${core} size: ${size}"
-                    v=`./${CPATH} -b ${size} -n ${core} -f ${fl} -o ${cl} -w ${flush} -j ${JOBS} | awk '{print $6}'`
-                    echo -e "${size}\t${v}" >> output.core.${core}.flatency.${fl}.clatency.${cl}.batch.${flush}
-                    ssh ${SERVER} "pkill server_"
-                    sleep 2
-                done
-            done
+            # run the server
+            ssh ${SERVER} "${SPATH} -t ${SCOREID}&" &
+            sleep 2
+            echo "write-batching: ${flush} clatency: ${cl} flatency: ${fl} cores: ${core} size: ${size}"
+            v=`./${CPATH} -b ${size} -n ${core} -w ${flush} -j ${JOBS} | awk '{print $6}'`
+            echo -e "${size}\t${v}" >> output.rd.core.${core}.batch.${flush}
+            ssh ${SERVER} "pkill server_"
+            sleep 2
         done
     done
 done

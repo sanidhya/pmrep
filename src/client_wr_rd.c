@@ -163,10 +163,10 @@ void *run_bench(void *arg)
                 start -= (opt.buffer_size + 1);
             buf[start] = (count++ + 48)%10;
             flush_data_simple(&pctx, buf + start, opt.buffer_size, j, tid);
-            burn_cycles(opt.flush_latency);
+            //burn_cycles(opt.flush_latency);
         }
         persist_data_wread(&pctx, tid);
-        burn_cycles(opt.commit_latency);
+        //burn_cycles(opt.commit_latency);
     }
     clock_gettime(CLOCK_MONOTONIC, &end_t);
 
