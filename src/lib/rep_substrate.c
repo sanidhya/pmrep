@@ -73,9 +73,16 @@ static struct error_name cm_events[] = {
 };
 
 static struct error_name persistence_type[] = {
-    { NO_PERSISTENCE,       "NO PERSISTENCE (DEFAULT)"                  },
-    { WEAK_PERSISTENCE,     "WEAK PERSISTENCE"                          },
-    { STRONG_PERSISTENCE,   "STRONG PERSISTENCE"                        },
+    { NO_PERSISTENCE_DDIO,             "No persistence + DDIO " },
+    { NO_PERSISTENCE_NODDIO,           "No persistence - DDIO" },
+    { WEAK_PERSISTENCE_WITH_ADR_DDIO,  "Weak persistence + ADR + DDIO" },
+    { WEAK_PERSISTENCE_WITH_ADR_NODDIO,"Weak persistence + ADR - DDIO" },
+    { WEAK_PERSISTENCE_WITH_eADR_DDIO, "Weak persistence + eADR + DDIO" },
+    { WEAK_PERSISTENCE_WITH_eADR_NODDIO, "Weak persistence + eADR - DDIO" },
+    { STRONG_PERSISTENCE_WITH_ADR_DDIO, "Strong persistence + ADR + DDIO" },
+    { STRONG_PERSISTENCE_WITH_ADR_NODDIO, "Strong persistence + ADR - DDIO" },
+    { STRONG_PERSISTENCE_WITH_eADR_DDIO, "Strong persistence + eADR + DDIO" },
+    { STRONG_PERSISTENCE_WITH_eADR_NODDIO, "Strong persistence + eADR - DDIO" },
 };
 
 inline char *get_value(int value, struct error_name *name_array,
@@ -161,13 +168,10 @@ static inline void update_send_wr(struct ibv_send_wr *wr, struct ibv_sge *sge,
         wr->wr.rdma.remote_addr = raddr;
         wr->wr.rdma.rkey = rkey;
     }
-#if 0
     if ((opcode == IBV_WR_RDMA_WRITE ||
-        opcode == IBV_WR_RDMA_WRITE_WITH_IMM ||
-        opcode == IBV_WR_SEND) &&
+        opcode == IBV_WR_RDMA_WRITE_WITH_IMM) &&
         sge->length <= MAX_INLINE_DATA)
         wr->send_flags |= IBV_SEND_INLINE;
-#endif
 }
 
 static inline void update_recv_wr(struct ibv_recv_wr *wr,
@@ -175,43 +179,17 @@ static inline void update_recv_wr(struct ibv_recv_wr *wr,
 {
     dprintf("RECV WR update wr id: %lu\n", wr->wr_id);
     wr->sg_list = sge;
-    wr->num_sge = 1;
+    wr->num_sge = sge?1:0;
     wr->next = NULL;
 }
 
-static void post_recv_wr(pmrep_ctx_t *pctx, int num, size_t size, int thread_id)
+static void post_recv_wr(struct ibv_qp *qp, struct rwr_list_info *rwr_node)
 {
     int ret = 0;
-    int i;
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->recv_bufinfo;
-
-    for (i = 0; i < num; i++) {
-        dprintf("========= POST RECV COUNT: %lu =========\n",
-                ++pctx->stats.post_recv_count);
-        /* get the entry from head->next of free_lhead_rwr */
-        struct rwr_list_info *rwr_node = list_entry(minfo->free_lhead.next,
-                                                    struct rwr_list_info, node);
-        dprintf("Got recv wr id: %lu\n", rwr_node->wr.wr_id);
-
-        /* delete the entry from free list */
-        list_move_tail(&rwr_node->node, &minfo->busy_lhead);
-
-        /* update the wr and sge respectively */
-        struct ibv_recv_wr *wr = &rwr_node->wr;
-        struct ibv_sge *sge = &rwr_node->sge;
-        update_sge(sge, (uintptr_t)minfo->buffer,
-                   size, minfo->mr->lkey);
-        update_recv_wr(wr, sge);
-
-        tblock->recv_posted_count++;
-        dprintf("Posted receive count: %lu\n", tblock->recv_posted_count);
-
-        dprintf("ibv_post_recv wr id: %lu\n", wr->wr_id);
-        ret = ibv_post_recv(pctx->rcm.qp, wr, &rwr_node->bad_wr);
-        assert(ret == 0);
-        assert(rwr_node->bad_wr == NULL);
-    }
+    dprintf("ibv_post_recv wr id: %lu\n", wr->wr_id);
+    ret = ibv_post_recv(qp, &rwr_node->wr, &rwr_node->bad_wr);
+    assert(ret == 0);
+    assert(rwr_node->bad_wr == NULL);
 }
 
 static inline void clean_write_list(pmrep_ctx_t *pctx, int thread_id)
@@ -256,7 +234,7 @@ inline void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
     sge = &pos->sge;
     assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
     update_sge(sge, (uintptr_t)addr, bytes, minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, 0,
+    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, IBV_SEND_NOSIGNAL,
                    minfo->remote_data->buf_va + offset,
                    minfo->remote_data->buf_rkey);
     ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
@@ -358,26 +336,6 @@ void setup_cm_parameters(struct rdma_conn_param *cm_param)
     cm_param->rnr_retry_count = DEFAULT_RNR_RETRY_COUNT;
 }
 
-static void init_metainfo_recv(pmrep_ctx_t *pctx, struct buf_metainfo *minfo,
-                               size_t size, char *str,
-                               struct remote_regdata *remote_data,
-                               int thread_id, uint64_t pt_wrs)
-{
-    uint64_t i;
-
-    minfo->buffer = mem_alloc_pgalign(size, str);
-    assert(minfo->buffer);
-    minfo->size = size;
-    INIT_LIST_HEAD(&minfo->busy_lhead);
-    INIT_LIST_HEAD(&minfo->free_lhead);
-    for (i = 0; i < pt_wrs; ++i)
-        list_add_tail(&pctx->recv_wrnodes[i +
-                      thread_id * pt_wrs].node, &minfo->free_lhead);
-    minfo->remote_data = remote_data;
-    minfo->mr = ibv_reg_mr(pctx->rcm.pd, minfo->buffer, size, IBV_ENABLE_RDWR);
-    assert(minfo->mr);
-}
-
 static void init_metainfo_send(pmrep_ctx_t *pctx, struct buf_metainfo *minfo,
                                int alloc, uint8_t *ptr, size_t size, char *str,
                                struct remote_regdata *remote_data,
@@ -428,12 +386,15 @@ static void allocate_structures(pmrep_ctx_t *pctx, uint8_t *buffer, size_t size,
     int total_send_wrs = pctx->total_flush_wrs + pctx->total_persist_wrs;
     int total_recv_wrs = pctx->total_recv_wrs;
     size_t rd_size = num_threads * OPS_TYPE * sizeof(struct remote_regdata);
-    size_t max_rd_size = ONLINE_CORES * OPS_TYPE *
-        sizeof(struct remote_regdata);
+    size_t max_rdsize = ONLINE_CORES * OPS_TYPE * sizeof(struct remote_regdata);
+    struct rwr_list_info *recv_wrnodes;
+    size_t pdlist_size = sizeof(struct pdlist);
+    size_t rbuf_size;
+    uint64_t rbuf_ptr;
 
-    pctx->ctrl_bufinfo.buffer = mem_alloc_pgalign(max_rd_size, "Ctrl op");
+    pctx->ctrl_bufinfo.buffer = mem_alloc_pgalign(max_rdsize, "Ctrl op");
     pctx->ctrl_bufinfo.mr = ibv_reg_mr(pctx->rcm.pd, pctx->ctrl_bufinfo.buffer,
-                                       max_rd_size, IBV_ENABLE_RDWR);
+                                       max_rdsize, IBV_ENABLE_RDWR);
     assert(pctx->ctrl_bufinfo.mr);
     pctx->ctrl_bufinfo.wr.wr_id = total_send_wrs;
 
@@ -447,12 +408,28 @@ static void allocate_structures(pmrep_ctx_t *pctx, uint8_t *buffer, size_t size,
     for (i = 0; i < total_send_wrs; ++i)
         pctx->persist_wrnodes[i].wr.wr_id = i;
 
-    pctx->recv_wrnodes = mem_alloc_pgalign(sizeof(struct rwr_list_info) *
-                                           total_recv_wrs, "Receive wrs");
-    assert(pctx->recv_wrnodes);
+    rbuf_size = sizeof(struct rwr_list_info) * total_recv_wrs;
+    pctx->recv_bufinfo.recv_wrnodes =
+        mem_alloc_pgalign(rbuf_size, "Receive wrs");
+    assert(pctx->recv_bufinfo.recv_wrnodes);
 
-    for (i = 0; i < total_recv_wrs; ++i)
-        pctx->recv_wrnodes[i].wr.wr_id = i + total_send_wrs + 1;
+    pctx->recv_bufinfo.size = pctx->total_recv_wrs * sizeof(struct pdlist);
+    pctx->recv_bufinfo.buffer = mem_alloc_pgalign(pctx->recv_bufinfo.size,
+                                                  "Recv buffer");
+    pctx->recv_bufinfo.mr = ibv_reg_mr(pctx->rcm.pd, pctx->recv_bufinfo.buffer,
+                                       pctx->recv_bufinfo.size,
+                                       IBV_ENABLE_RDWR);
+    assert(pctx->recv_bufinfo.mr);
+
+    recv_wrnodes = pctx->recv_bufinfo.recv_wrnodes;
+    rbuf_ptr = (uintptr_t)pctx->recv_bufinfo.buffer;
+
+    for (i = 0; i < total_recv_wrs; ++i) {
+        recv_wrnodes[i].wr.wr_id = i + total_send_wrs + 1;
+        recv_wrnodes[i].buffer = (uint8_t *)(uintptr_t)rbuf_ptr;
+        recv_wrnodes[i].size = pdlist_size;
+        rbuf_ptr += pdlist_size;
+    }
 
     pctx->remote_data = mem_alloc_pgalign(rd_size, "Remote meta info");
 
@@ -483,17 +460,28 @@ static void allocate_structures(pmrep_ctx_t *pctx, uint8_t *buffer, size_t size,
                                sizeof(struct pdlist), "Send",
                                &pctx->remote_data[t * OPS_TYPE + 2], t,
                                pctx->total_flush_wrs, pctx->pt_persist_wrs);
-
-        init_metainfo_recv(pctx, &tblocks[t].recv_bufinfo,
-                           sizeof(struct pdlist), "Recv",
-                           &pctx->remote_data[t * OPS_TYPE + 3], t,
-                           pctx->pt_recv_wrs);
     }
 
     pctx->persist_cq_bits = mem_alloc_pgalign(MAX_WRS, "Persist cq bits");
     assert(pctx->persist_cq_bits);
     pctx->recv_cq_bits = mem_alloc_pgalign(MAX_WRS, "RECV cq bits");
     assert(pctx->recv_cq_bits);
+}
+
+static inline void pre_post_all_recv_wrs(pmrep_ctx_t *pctx)
+{
+    int i;
+    struct ibv_mr *mr = pctx->recv_bufinfo.mr;
+    struct rwr_list_info *recv_wrnodes = pctx->recv_bufinfo.recv_wrnodes;
+
+    for (i = 0; i < pctx->total_recv_wrs; ++i) {
+        struct rwr_list_info *rnode = &recv_wrnodes[i];
+        struct ibv_sge *sge = &rnode->sge;
+        struct ibv_recv_wr *wr = &rnode->wr;
+        update_sge(sge, (uintptr_t)rnode->buffer, rnode->size, mr->lkey);
+        update_recv_wr(wr, sge);
+        post_recv_wr(pctx->rcm.qp, rnode);
+    }
 }
 
 /* client side */
@@ -504,6 +492,8 @@ static inline void receive_mr_data(pmrep_ctx_t *pctx)
     struct ibv_recv_wr *wr = NULL;
     struct ibv_sge *sge;
     size_t size = OPS_TYPE * pctx->num_threads * sizeof(struct remote_regdata);
+    struct rwr_list_info *recv_wrnodes = pctx->recv_bufinfo.recv_wrnodes;
+    struct rwr_list_info *rnode = NULL;
     uint64_t i;
     int ret = 0;
 
@@ -514,11 +504,12 @@ static inline void receive_mr_data(pmrep_ctx_t *pctx)
 
     /* got the buffer */
     for(i = 0; i < pctx->total_recv_wrs; ++i) {
-        if (pctx->recv_wrnodes[i].wr.wr_id == wc.wr_id) {
-            wr = &pctx->recv_wrnodes[i].wr;
+        if (recv_wrnodes[i].wr.wr_id == wc.wr_id) {
+            rnode = &recv_wrnodes[i];
             break;
         }
     }
+    wr = &rnode->wr;
     sge = wr->sg_list;
     memcpy(pctx->remote_data, (void *)(uintptr_t)sge->addr, size);
     dprintf("Got data\n");
@@ -526,6 +517,7 @@ static inline void receive_mr_data(pmrep_ctx_t *pctx)
         dprintf("%lu: buf: %lx remote-key: %u\n", i, pctx->remote_data[i].buf_va,
                pctx->remote_data[i].buf_rkey);
     }
+    post_recv_wr(pctx->rcm.qp, rnode);
 }
 
 static int setup_memory_region_client(pmrep_ctx_t *pctx, uint8_t *buffer,
@@ -534,7 +526,6 @@ static int setup_memory_region_client(pmrep_ctx_t *pctx, uint8_t *buffer,
     struct rdma_conn_param cm_param;
     struct ibv_qp_init_attr qp_attr;
     int ret = 0;
-    uint64_t i;
 
     /* get the context */
     pctx->rcm.ctx = pctx->rcm.id->verbs;
@@ -566,9 +557,8 @@ static int setup_memory_region_client(pmrep_ctx_t *pctx, uint8_t *buffer,
     assert(ret == 0);
 
     pctx->rcm.qp = pctx->rcm.id->qp;
-    for (i = 0; i < pctx->num_threads; ++i)
-        post_recv_wr(pctx, pctx->pt_recv_wrs,
-                     pctx->thread_blocks[i].recv_bufinfo.size, i);
+
+    pre_post_all_recv_wrs(pctx);
 
     /* time to connect */
     setup_cm_parameters(&cm_param);
@@ -710,10 +700,11 @@ void setup_memory_region_server(pmrep_ctx_t *pctx, size_t buffer_size)
     assert(ret == 0);
 
     pctx->rcm.qp = pctx->rcm.id->qp;
-    for (i = 0; i < pctx->num_threads; ++i) {
-        post_recv_wr(pctx, pctx->pt_recv_wrs,
-                     pctx->thread_blocks[i].recv_bufinfo.size, i);
 
+    /* post the recv wr */
+    pre_post_all_recv_wrs(pctx);
+
+    for (i = 0; i < pctx->num_threads; ++i) {
         pctx->remote_data[OPS_TYPE * i].buf_va =
             (uintptr_t)pctx->thread_blocks[i].flush_bufinfo.buffer;
         pctx->remote_data[OPS_TYPE * i].buf_rkey =
@@ -734,11 +725,6 @@ void setup_memory_region_server(pmrep_ctx_t *pctx, size_t buffer_size)
                 pctx->thread_blocks[i].persist_bufinfo.mr->rkey;
 
         }
-
-        pctx->remote_data[OPS_TYPE * i + 3].buf_va =
-            (uintptr_t)pctx->thread_blocks[i].recv_bufinfo.buffer;
-        pctx->remote_data[OPS_TYPE * i + 3].buf_rkey =
-            pctx->thread_blocks[i].recv_bufinfo.mr->rkey;
     }
 
     setup_cm_parameters(&cm_param);
@@ -825,10 +811,10 @@ void clear_region(pmrep_ctx_t *pctx, int free_buffer)
             dealloc_metainfo(&pctx->thread_blocks[i].read_bufinfo, 1);
         else
             dealloc_metainfo(&pctx->thread_blocks[i].persist_bufinfo, 1);
-        dealloc_metainfo(&pctx->thread_blocks[i].recv_bufinfo, 1);
     }
 
     ibv_dereg_mr(pctx->ctrl_bufinfo.mr);
+    ibv_dereg_mr(pctx->recv_bufinfo.mr);
     ibv_destroy_cq(pctx->rcm.send_cq);
     ibv_destroy_cq(pctx->rcm.recv_cq);
     ibv_destroy_comp_channel(pctx->rcm.comp_channel);
@@ -840,9 +826,10 @@ void clear_region(pmrep_ctx_t *pctx, int free_buffer)
 
     free(pctx->ctrl_bufinfo.buffer);
     free(pctx->persist_wrnodes);
-    free(pctx->recv_wrnodes);
     free(pctx->persist_cq_bits);
     free(pctx->recv_cq_bits);
+    free(pctx->recv_bufinfo.buffer);
+    free(pctx->recv_bufinfo.recv_wrnodes);
 
     pctx->rcm.send_cq = NULL;
     pctx->rcm.recv_cq = NULL;
@@ -851,7 +838,6 @@ void clear_region(pmrep_ctx_t *pctx, int free_buffer)
     pctx->rcm.id = NULL;
     pctx->rcm.ec = NULL;
     pctx->persist_wrnodes = NULL;
-    pctx->recv_wrnodes = NULL;
     pctx->persist_cq_bits = NULL;
     pctx->recv_cq_bits = NULL;
 }

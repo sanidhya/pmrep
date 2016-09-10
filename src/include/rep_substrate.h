@@ -21,7 +21,7 @@
 
 #define NUM_CQES    (1 << 20)
 
-#define OPS_TYPE 4
+#define OPS_TYPE 3
 
 /*
  * Maximum number of scatter / gatter elements in the SQ / RQ
@@ -53,6 +53,9 @@
 #define DEFAULT_RETRY_COUNT     (7)
 #define DEFAULT_RNR_RETRY_COUNT (7)
 
+#define IBV_SEND_NOSIGNAL   0
+#define NOVALUE             0
+
 /*
  * Inline data size
  */
@@ -62,9 +65,16 @@
 #define PASSIVE_NODE_IP "192.168.0.1" /* bumblebee */
 
 typedef enum {
-    NO_PERSISTENCE,
-    WEAK_PERSISTENCE,
-    STRONG_PERSISTENCE,
+    NO_PERSISTENCE_DDIO,
+    NO_PERSISTENCE_NODDIO,
+    WEAK_PERSISTENCE_WITH_ADR_DDIO,
+    WEAK_PERSISTENCE_WITH_ADR_NODDIO,
+    WEAK_PERSISTENCE_WITH_eADR_DDIO,
+    WEAK_PERSISTENCE_WITH_eADR_NODDIO,
+    STRONG_PERSISTENCE_WITH_ADR_DDIO,
+    STRONG_PERSISTENCE_WITH_ADR_NODDIO,
+    STRONG_PERSISTENCE_WITH_eADR_DDIO,
+    STRONG_PERSISTENCE_WITH_eADR_NODDIO,
 }persistence_t;
 
 struct remote_regdata {
@@ -99,6 +109,15 @@ struct rwr_list_info {
     struct ibv_recv_wr  wr, *bad_wr;
     struct ibv_sge      sge;
     struct list_head    node;
+    uint8_t             *buffer;
+    size_t              size;
+};
+
+struct recv_bufinfo {
+    uint8_t                 *buffer;
+    size_t                  size;
+    struct ibv_mr           *mr;
+    struct rwr_list_info    *recv_wrnodes;
 };
 
 struct rdma_cm {
@@ -164,8 +183,6 @@ struct thread_block {
     struct buf_metainfo     flush_bufinfo ____cacheline_aligned;
     /* send buffer metainfo */
     struct buf_metainfo     persist_bufinfo ____cacheline_aligned;
-    /* recv buffer metainfo */
-    struct buf_metainfo     recv_bufinfo ____cacheline_aligned;
     /* read buffer metainfo */
     struct buf_metainfo     read_bufinfo ____cacheline_aligned;
 
@@ -197,7 +214,7 @@ typedef struct pmrep_ctx {
 
     /* 1 to n mapping of work requests and sges */
     struct swr_list_info    *persist_wrnodes ____cacheline_aligned;
-    struct rwr_list_info    *recv_wrnodes ____cacheline_aligned;
+    struct recv_bufinfo     recv_bufinfo ____cacheline_aligned;
 
     /* publication list for the wce for send and receives */
     /*
