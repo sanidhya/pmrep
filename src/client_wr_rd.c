@@ -10,11 +10,6 @@
 #define BUFFER_SIZE (1ULL << 32)
 #define BUFFER_GAP  (1ULL << 6)
 
-struct thread_struct {
-    int tid;
-    struct cmd_opt *opt;
-};
-
 static struct {
    volatile int start;
    union {

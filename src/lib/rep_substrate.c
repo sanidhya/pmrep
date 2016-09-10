@@ -108,6 +108,74 @@ inline char *get_cm_event_name(int event, char *data, size_t size)
     return get_value(event, cm_events, data, size);
 }
 
+static inline struct rwr_list_info *get_rnode(struct rwr_list_info *nodes,
+                                              uint64_t id, uint64_t num_elems)
+{
+    uint64_t i;
+
+    /* XXX: replace with binary search even though the list is small */
+    for (i = 0; i < num_elems; ++i) {
+        if (id == nodes[i].wr.wr_id)
+            return &nodes[i];
+    }
+    /* XXX: this should never happen */
+    assert(0);
+    return NULL;
+}
+
+static inline void poll_recv_cq(struct ibv_cq *cq, struct ibv_wc *wc)
+{
+    char correct_msg[L1D_CACHELINE_BYTES], wrong_msg[L1D_CACHELINE_BYTES];
+    int n = 0;
+
+    do {
+        n = ibv_poll_cq(cq, 1, wc);
+        dprintf("thread: %d, looping for id: %lu\n", thread_id, wc->wr_id);
+    } while (n == 0);
+
+    if (wc->status != IBV_WC_SUCCESS) {
+        fprintf(stderr, "Persist: expected: %s, got: %s\n",
+                get_wr_status_name(IBV_WC_SUCCESS,
+                                   correct_msg, L1D_CACHELINE_BYTES),
+                get_wr_status_name(wc->status,
+                                   wrong_msg, L1D_CACHELINE_BYTES));
+        assert(0);
+
+    }
+}
+
+static inline struct rwr_list_info *poll_recv_cq_server(pmrep_ctx_t *pctx,
+                                                        int thread_id)
+{
+    struct ibv_wc wc = {};
+
+    poll_recv_cq(pctx->rcm.recv_cq, &wc);
+    dprintf("thread: %d id: %lu\n", thread_id, wc.wr_id);
+    assert(wc.wr_id >= pctx->total_flush_wrs + pctx->total_persist_wrs);
+    return get_rnode(pctx->recv_bufinfo.recv_wrnodes, wc.wr_id,
+                     pctx->total_recv_wrs);
+}
+
+static inline struct rwr_list_info *poll_recv_cq_client(pmrep_ctx_t *pctx,
+                                                        uint64_t id,
+                                                        int thread_id)
+{
+    struct rwr_list_info *rwr_node;
+    struct ibv_wc wc = {};
+
+    poll_recv_cq(pctx->rcm.recv_cq, &wc);
+    assert(wc.wr_id >= pctx->total_flush_wrs + pctx->total_persist_wrs);
+    rwr_node = get_rnode(pctx->recv_bufinfo.recv_wrnodes,
+                         wc.wr_id, pctx->total_recv_wrs);
+    pctx->recv_cq_bits[wc.imm_data] = 1;
+    smp_wmb();
+
+    while (pctx->recv_cq_bits[id] == 0) {
+        smp_rmb();
+    }
+    return rwr_node;
+}
+
 static inline void poll_send_cq(pmrep_ctx_t *pctx, uint64_t id, int thread_id)
 {
     int n = 0;
@@ -159,7 +227,7 @@ static inline void update_send_wr(struct ibv_send_wr *wr, struct ibv_sge *sge,
     wr->opcode = opcode;
     wr->next = NULL;
     wr->sg_list = sge;
-    wr->num_sge = 1;
+    wr->num_sge = sge?1:0;
     if (send_flags == IBV_SEND_SIGNALED)
         wr->send_flags = send_flags;
     if (opcode == IBV_WR_RDMA_WRITE ||
@@ -183,10 +251,23 @@ static inline void update_recv_wr(struct ibv_recv_wr *wr,
     wr->next = NULL;
 }
 
+static inline void get_and_post_recv_wr(pmrep_ctx_t *pctx,
+                                        struct rwr_list_info *rwr_node,
+                                        uint64_t sid)
+{
+    int ret;
+
+    pctx->recv_cq_bits[sid] = 0;
+    ret = ibv_post_recv(pctx->rcm.qp, &rwr_node->wr, &rwr_node->bad_wr);
+    assert(ret == 0);
+    assert(rwr_node->bad_wr == NULL);
+}
+
 static void post_recv_wr(struct ibv_qp *qp, struct rwr_list_info *rwr_node)
 {
     int ret = 0;
-    dprintf("ibv_post_recv wr id: %lu\n", wr->wr_id);
+    dprintf("ibv_post_recv wr id: %lu\n", rwr_node->wr.wr_id);
+    memset(rwr_node->buffer, 0, rwr_node->size);
     ret = ibv_post_recv(qp, &rwr_node->wr, &rwr_node->bad_wr);
     assert(ret == 0);
     assert(rwr_node->bad_wr == NULL);
@@ -197,6 +278,9 @@ static inline void clean_write_list(pmrep_ctx_t *pctx, int thread_id)
     struct thread_block *tblock = &pctx->thread_blocks[thread_id];
     struct buf_metainfo *minfo = &tblock->flush_bufinfo;
     struct swr_list_info *pos, *tmp;
+
+    if (list_empty(&minfo->busy_lhead))
+        return;
 
     list_for_each_entry_safe(pos, tmp, &minfo->busy_lhead, node) {
         list_move(&pos->node, &minfo->free_lhead);
@@ -215,6 +299,19 @@ static inline void free_read_lists(pmrep_ctx_t *pctx, uint64_t id, int thread_id
     list_move(&send_node->node, &minfo->free_lhead);
 }
 
+static inline void free_persist_lists(pmrep_ctx_t *pctx, uint64_t id,
+                                      int thread_id)
+{
+    struct swr_list_info *send_node = &pctx->persist_wrnodes[id];
+    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
+    struct buf_metainfo *minfo = &tblock->persist_bufinfo;
+
+    clean_write_list(pctx, thread_id);
+    pctx->persist_cq_bits[id] = 0;
+    smp_wmb();
+    list_move(&send_node->node, &minfo->free_lhead);
+}
+
 inline void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
                        size_t bytes, int lazy_write, int thread_id)
 {
@@ -225,6 +322,8 @@ inline void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
     struct ibv_sge *sge = NULL;
     off_t offset = (uintptr_t)addr - (uintptr_t)minfo->buffer;
     int ret = 0;
+    uint64_t remote_addr = minfo->remote_data->buf_va + offset;
+
 
     list_for_each_entry_safe(pos, tmp, &minfo->free_lhead, node) {
         list_move_tail(&pos->node, &minfo->busy_lhead);
@@ -233,9 +332,19 @@ inline void flush_data_simple(pmrep_ctx_t *pctx, void *addr,
     wr = &pos->wr;
     sge = &pos->sge;
     assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
+
+    if (!pctx->persist_with_reads) {
+        struct buf_metainfo *pminfo = &tblock->persist_bufinfo;
+        struct pdlist *pdlist = (struct pdlist *)pminfo->buffer;
+        uint32_t elems = pdlist->elems;
+
+        pdlist->list[elems].ptr = remote_addr;
+        pdlist->list[elems].len = bytes;
+        pdlist->elems++;
+    }
+
     update_sge(sge, (uintptr_t)addr, bytes, minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, IBV_SEND_NOSIGNAL,
-                   minfo->remote_data->buf_va + offset,
+    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, IBV_SEND_NOSIGNAL, remote_addr,
                    minfo->remote_data->buf_rkey);
     ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
     assert(ret == 0);
@@ -277,35 +386,42 @@ inline void persist_data_wread(pmrep_ctx_t *pctx, int thread_id)
 
 void persist_data_wsend(pmrep_ctx_t *pctx, persistence_t pt, int thread_id)
 {
-#if 0
-    struct swr_list_info *swr_node = NULL;
-    uint64_t recv_wr_id;
+    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
+    struct buf_metainfo *minfo = &tblock->persist_bufinfo;
+    struct swr_list_info *pos, *tmp;
+    struct rwr_list_info *rwr_node;
+    struct pdlist *pdlist = (struct pdlist *)minfo->buffer;
+    struct ibv_send_wr *wr = NULL;
+    struct ibv_sge *sge = NULL;
+    size_t send_size;
+    int ret = 0;
 
-    dprintf("persist via sends\n");
-    swr_node = persist_data(pctx, 0, pt);
-    if (!swr_node)
-        return;
-
-    if (pctx->recv_posted_count < MAX_POST_RECVS / 2) {
-        dprintf("post receives (%lu) less than half of %d",
-                pctx->recv_posted_count, MAX_POST_RECVS);
-        post_recv_wr(pctx, 1, pctx->recv_bufinfo.size);
+    list_for_each_entry_safe(pos, tmp, &minfo->free_lhead, node) {
+        list_move_tail(&pos->node, &minfo->busy_lhead);
+        break;
     }
 
-    /* poll for wsend */
-    dprintf("polling for the send wr id: %lu\n", swr_node->wr.wr_id);
-    poll_send_cq(pctx, swr_node->wr.wr_id);
+    pdlist->pt = pt;
+    send_size = sizeof(struct pdlist) - (sizeof(struct pdentry) *
+                                        (MAX_COMPOUND_ENTRIES - pdlist->elems));
 
-    dprintf("since there is time, cleaning up the send list\n");
-    clean_slist(pctx, swr_node, &pctx->persist_bufinfo.free_lhead);
+    wr = &pos->wr;
+    sge = &pos->sge;
+    pdlist->wr_id = wr->wr_id;
+    assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
+    update_sge(sge, (uintptr_t)pdlist, send_size, minfo->mr->lkey);
+    update_send_wr(wr, sge, IBV_WR_SEND, IBV_SEND_SIGNALED, NOVALUE, NOVALUE);
+    ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
+    assert(ret == 0);
+    assert(pos->bad_wr == NULL);
+    poll_send_cq(pctx, wr->wr_id, thread_id);
 
-    /* poll for the recv */
-    dprintf("polling for receive wr: %lu\n", swr_node->wr.wr_id);
-    recv_wr_id = poll_recv_cq(pctx, swr_node->wr.wr_id);
+    pdlist->elems = 0;
+    free_persist_lists(pctx, wr->wr_id, thread_id);
 
-    dprintf("cleaning up the rlist\n");
-    clean_rlist(pctx, recv_wr_id);
-#endif
+    /* get the recv wr id from the recv cq and then post it again */
+    rwr_node = poll_recv_cq_client(pctx, wr->wr_id, thread_id);
+    get_and_post_recv_wr(pctx, rwr_node, wr->wr_id);
 }
 
 void persist_data_with_complex_writes(pmrep_ctx_t *pctx, persistence_t pt,

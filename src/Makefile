@@ -11,7 +11,7 @@ else
 endif
 CFLAGS += $(FLAGS)
 
-APPS := server_rd client_wr_rd #client_wr_sd server_sd
+APPS := server_rd client_wr_rd client_wr_sd server_sd
 
 LIBSRC = lib/util.c lib/rep_substrate.c
 LIB = $(patsubst %.c, %.o, $(LIBSRC))
