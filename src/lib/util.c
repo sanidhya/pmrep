@@ -104,6 +104,7 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
         {"commit_latency",      required_argument, 0, 'o'},
         {"const_cores",         required_argument, 0, 't'},
         {"persistence",         required_argument, 0, 'e'},
+        {"max_cores",           required_argument, 0, 'x'},
         {0,                     0,                 0, 0},
     };
     int arg_cnt;
@@ -111,7 +112,7 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
     for (arg_cnt = 0; 1; ++arg_cnt) {
         int c, idx = 0;
         c = getopt_long(argc, argv,
-                        "s:p:n:j:b:i:c:m:w:l:f:o:t:e:", options, &idx);
+                        "s:p:n:j:b:i:c:m:w:l:f:o:t:e:x:", options, &idx);
         if (c == -1)
             break;
         switch(c) {
@@ -157,6 +158,9 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
         case 'e':
             opt->pt = atoi(optarg);
             break;
+        case 'x':
+            opt->max_cores = atoi(optarg);
+            break;
         default:
             return -EINVAL;
         }
@@ -180,6 +184,7 @@ void usage(FILE *out, char *progname)
     fprintf(out, "  --flush_latency = Latency between every flushes (ns)\n");
     fprintf(out, "  --commit_latency = Latency between every persist (ns)\n");
     fprintf(out, "  --const_cores = extra const for core pinning\n");
+    fprintf(out, "  --max_cores = max threads to handle requests (server)\n");
     fprintf(out, "  --persistence = <num>\n");
     for (i = 0; i < NUM_PERSISTENCE; ++i) {
         fprintf(out, "      %d: %s\n", i, persistence_type[i].name);

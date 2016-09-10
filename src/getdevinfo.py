@@ -54,6 +54,14 @@ def main():
     print HEADER
     for key, value in IB_NUMS.iteritems():
         print "#define %s %d" % (key, value)
+
+    print ''
+    with open('CONF', 'r') as f:
+        content = f.readlines()
+        for i in content:
+            v = i.split('=')
+            print "#define %s \"%s\"" % (v[0].strip(' '),
+                                         v[1].strip('\n').strip(' '))
     print FOOTER
     file.close
 

@@ -61,9 +61,6 @@
  */
 #define MAX_INLINE_DATA  128
 
-#define RDMA_PORT       "20480"
-#define PASSIVE_NODE_IP "192.168.0.1" /* bumblebee */
-
 struct remote_regdata {
     uint64_t buf_va;
     uint32_t buf_rkey;

@@ -236,17 +236,24 @@ int main(int argc, char *argv[])
 {
     int i = 0;
     pthread_t th;
+    int max_cores = 1;
 
     if (parse_options(argc, argv, &opt) < 1) {
         usage(stderr, argv[0]);
         return -1;
     }
 
-    signal(SIGINT, handler);
     memset(&pctx, 0, sizeof(pctx));
+
+    signal(SIGINT, handler);
     setup_region_server(&pctx);
 
-    for (i = 1; i < pctx.num_threads; ++i) {
+    if (opt.max_cores <= 0)
+        max_cores = pctx.num_threads;
+    else if (opt.max_cores <= pctx.num_threads)
+        max_cores = opt.max_cores;
+
+    for (i = 1; i < max_cores; ++i) {
         assert(pthread_create(&th, NULL, handle_req, (void *)(intptr_t)i) == 0);
     }
 
