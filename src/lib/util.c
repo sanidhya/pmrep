@@ -307,6 +307,53 @@ int client_getset_info(size_t buffer_size, const char *server_ip,
     return port;
 }
 
+inline void msync_overhead(void)
+{
+    burn_cycles(MSYNC_OVERHEAD);
+}
+
+struct clflush_overhead_pair {
+    size_t size;    /* in bytes */
+    uint64_t time;  /* in nanoseconds */
+};
+
+struct clflush_overhead_pair cpair[] = {
+	{ 2,            136},
+	{ 4,            128},
+	{ 8,            132},
+	{ 16,           127},
+	{ 32,           137},
+	{ 64,           153},
+	{ 128,          234},
+	{ 256,          288},
+	{ 512,          368},
+	{ 1024,         388},
+	{ 2048,         526},
+	{ 4096,         873},
+	{ 8192,         1614},
+	{ 16384,        3084},
+	{ 32768,        6211},
+	{ 65536,        8259},
+	{ 131072,       15477},
+	{ 262144,       30347},
+	{ 524288,       60794},
+	{ 1048576,      117096},
+	{ 2097152,      203698},
+	{ 4194304,      351452},
+};
+
+inline void clflushopt_overhead(size_t size)
+{
+    int i;
+    for (i = 0; i < 22; ++i) {
+        if (size >= cpair[i].size)
+            break;
+    }
+    if (i == 22)
+        i = 21;
+    burn_cycles(cpair[i].time);
+}
+
 inline void spinlock_init(struct mcslock_t *lock)
 {
 	lock->qnode = NULL;

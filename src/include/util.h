@@ -42,6 +42,8 @@ do {                                                \
 
 #define __noret__ __attribute__((noreturn))
 
+#define MSYNC_OVERHEAD  (2000) /* nanoseconds */
+
 struct error_name {
     int value;
     char *name;
@@ -118,6 +120,11 @@ size_t server_setget_info(int port, int *num_threads, int *persist_with_reads);
  */
 int client_getset_info(size_t buffer_size, const char *server_ip,
                        int num_threads, int persist_with_reads);
+
+
+/* msync and clflush cost */
+void msync_overhead(void);
+void clflushopt_overhead(size_t size);
 
 /* mcs lock implementation */
 struct mcsqnode_t {

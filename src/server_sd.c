@@ -191,25 +191,29 @@ static inline void handle_persistence(struct pdlist *pdlist)
     case WEAK_PERSISTENCE_WITH_eADR_NODDIO:
         break;
     case WEAK_PERSISTENCE_WITH_ADR_DDIO:
-        for (i = 0; i < elems; ++i)
-            clflush_range((void *)pdlist->list[i].ptr, pdlist->list[i].len);
+        for (i = 0; i < elems; ++i) {
+            //clflush_range((void *)pdlist->list[i].ptr, pdlist->list[i].len);
+            clflushopt_overhead(pdlist->list[i].len);
+        }
         smp_wmb();
         break;
     case STRONG_PERSISTENCE_WITH_ADR_DDIO:
     case STRONG_PERSISTENCE_WITH_eADR_DDIO:
         for (i = 0; i < elems; ++i) {
-            clflush_range((void *)pdlist->list[i].ptr, pdlist->list[i].len);
-            smp_wmb();
-            msync((void *)(uintptr_t)pdlist->list[i].ptr, pdlist->list[i].len,
-                  MS_SYNC);
+            //clflush_range((void *)pdlist->list[i].ptr, pdlist->list[i].len);
+            clflushopt_overhead(pdlist->list[i].len);
         }
+        smp_wmb();
+        for (i = 0; i < elems; ++i) {
+            msync_overhead();
+        }
+        smp_wmb();
         break;
     case STRONG_PERSISTENCE_WITH_ADR_NODDIO:
     case STRONG_PERSISTENCE_WITH_eADR_NODDIO:
-        for (i = 0; i < elems; ++i) {
-            msync((void *)(uintptr_t)pdlist->list[i].ptr, pdlist->list[i].len,
-                  MS_SYNC);
-        }
+        for (i = 0; i < elems; ++i)
+            msync_overhead();
+        smp_wmb();
         break;
     default:
         assert(0);
