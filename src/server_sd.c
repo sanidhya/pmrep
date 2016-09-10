@@ -193,11 +193,13 @@ static inline void handle_persistence(struct pdlist *pdlist)
     case WEAK_PERSISTENCE_WITH_ADR_DDIO:
         for (i = 0; i < elems; ++i)
             clflush_range((void *)pdlist->list[i].ptr, pdlist->list[i].len);
+        smp_wmb();
         break;
     case STRONG_PERSISTENCE_WITH_ADR_DDIO:
     case STRONG_PERSISTENCE_WITH_eADR_DDIO:
         for (i = 0; i < elems; ++i) {
             clflush_range((void *)pdlist->list[i].ptr, pdlist->list[i].len);
+            smp_wmb();
             msync((void *)(uintptr_t)pdlist->list[i].ptr, pdlist->list[i].len,
                   MS_SYNC);
         }

@@ -92,7 +92,6 @@ static inline uint64_t get_time(void)
     asm volatile(".byte 0x66; clflush %0" : "+m" (*(volatile char *)addr))
 #define	clwb(addr)          \
 	asm volatile(".byte 0x66; xsaveopt %0" : "+m" (*(volatile char *)addr))
-#define smp_wmb() asm volatile("sfence" ::: "memory")
 
 #define	pcommit() asm volatile(".byte 0x66, 0x0f, 0xae, 0xf8")
 
