@@ -268,7 +268,7 @@ void *run_bench(void *arg)
     size_t eindex = (tid + 1) * block_size;
     size_t start = sindex;
 
-    setaffinity(tid);
+    setaffinity(tid + opt.const_cores);
     sync_state->cpu[tid].ready = 1;
 
     if (tid)
@@ -287,8 +287,10 @@ void *run_bench(void *arg)
                 start -= (opt.buffer_size + 1);
             buf[start] = (count++ + 48)%10;
             flush_data_simple(&pctx, buf + start, opt.buffer_size, 0, tid);
+            burn_cycles(opt.flush_latency);
         }
-        persist_data_wsend(&pctx, NO_PERSISTENCE_DDIO, tid);
+        persist_data_wsend(&pctx, opt.pt, tid);
+        burn_cycles(opt.commit_latency);
     }
     clock_gettime(CLOCK_MONOTONIC, &end_t);
 

@@ -42,7 +42,24 @@ do {                                                \
 
 #define __noret__ __attribute__((noreturn))
 
-typedef int mode;
+struct error_name {
+    int value;
+    char *name;
+};
+
+typedef enum {
+    NO_PERSISTENCE_DDIO,
+    NO_PERSISTENCE_NODDIO,
+    WEAK_PERSISTENCE_WITH_ADR_DDIO,
+    WEAK_PERSISTENCE_WITH_ADR_NODDIO,
+    WEAK_PERSISTENCE_WITH_eADR_DDIO,
+    WEAK_PERSISTENCE_WITH_eADR_NODDIO,
+    STRONG_PERSISTENCE_WITH_ADR_DDIO,
+    STRONG_PERSISTENCE_WITH_ADR_NODDIO,
+    STRONG_PERSISTENCE_WITH_eADR_DDIO,
+    STRONG_PERSISTENCE_WITH_eADR_NODDIO,
+    NUM_PERSISTENCE,
+} persistence_t;
 
 void __noret__ die(const char *err_str, ...);
 void __noret__ edie(const char *err_str, ...);
@@ -65,7 +82,19 @@ struct cmd_opt {
     int         write_batch_count;
     /* enable posting of multiple writes together */
     int         enable_lazy_writes;
+    /* runningt time between flushes */
+    uint64_t    flush_latency;
+    /* every commit gap */
+    uint64_t    commit_latency;
+    /* if the card is on different socket, then add this factor */
+    int         const_cores;
+    /* persistence */
+    int         pt;
 };
+
+extern struct error_name persistence_type[];
+
+void burn_cycles(uint64_t cycles);
 
 int parse_options(int argc, char *argv[], struct cmd_opt *opt);
 void usage(FILE *out, char *progname);

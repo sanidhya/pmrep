@@ -72,7 +72,7 @@ static struct error_name cm_events[] = {
     { RDMA_CM_EVENT_MULTICAST_ERROR,    "Multicast error"               },
 };
 
-static struct error_name persistence_type[] = {
+struct error_name persistence_type[] = {
     { NO_PERSISTENCE_DDIO,             "No persistence + DDIO " },
     { NO_PERSISTENCE_NODDIO,           "No persistence - DDIO" },
     { WEAK_PERSISTENCE_WITH_ADR_DDIO,  "Weak persistence + ADR + DDIO" },

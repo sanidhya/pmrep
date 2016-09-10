@@ -20,6 +20,7 @@ int main(int argc, char *argv[])
 {
     struct cmd_opt opt = {"192.168.0.1", 0, 0, 1000, 0, 0};
 
+    setaffinity(opt.const_cores + 0);
 
     if (parse_options(argc, argv, &opt) < 0) {
         usage(stderr, argv[0]);

@@ -67,6 +67,25 @@ uint64_t usec(void)
     return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
+#define update_tp(t, s, n)      \
+    do {                        \
+        (t).tv_sec = (s);       \
+        (t).tv_nsec = (n);      \
+    } while (0)
+
+#define NSECS_TO_SECS_FACTOR       1000000000ULL
+#define NSECS_TO_SECS(v)    ((v) / NSECS_TO_SECS_FACTOR)
+
+void burn_cycles(uint64_t nsecs)
+{
+    uint64_t start, end;
+
+    start = gethrtime();
+    end = start;
+    while (end - start <= nsecs)
+         end = gethrtime();
+}
+
 int parse_options(int argc, char *argv[], struct cmd_opt *opt)
 {
     opt->num_threads = 1;
@@ -81,14 +100,18 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
         {"enable_spst",         required_argument, 0, 'm'},
         {"write_batch",         required_argument, 0, 'w'},
         {"lazy_writes",         required_argument, 0, 'l'},
-        {0,             0,                 0, 0},
+        {"flush_latency",       required_argument, 0, 'f'},
+        {"commit_latency",      required_argument, 0, 'o'},
+        {"const_cores",         required_argument, 0, 't'},
+        {"persistence",         required_argument, 0, 'e'},
+        {0,                     0,                 0, 0},
     };
     int arg_cnt;
 
     for (arg_cnt = 0; 1; ++arg_cnt) {
         int c, idx = 0;
         c = getopt_long(argc, argv,
-                        "s:p:n:j:b:i:c:m:w:l:", options, &idx);
+                        "s:p:n:j:b:i:c:m:w:l:f:o:t:e:", options, &idx);
         if (c == -1)
             break;
         switch(c) {
@@ -122,6 +145,18 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
         case 'l':
             opt->enable_lazy_writes = atoi(optarg)?1:0;
             break;
+        case 'f':
+            opt->flush_latency = atol(optarg);
+            break;
+        case 'o':
+            opt->commit_latency = atol(optarg);
+            break;
+        case 't':
+            opt->const_cores = atoi(optarg);
+            break;
+        case 'e':
+            opt->pt = atoi(optarg);
+            break;
         default:
             return -EINVAL;
         }
@@ -131,16 +166,24 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
 
 void usage(FILE *out, char *progname)
 {
+    int i;
     fprintf(out, "Usage: %s\n", progname);
     fprintf(out, "  --server    = Server ip for the client\n");
     fprintf(out, "  --port      = Server port for the client\n");
+    fprintf(out, "  --nthreads  = Will fork n threads to operate\n");
     fprintf(out, "  --iters     = number of jobs / iterations\n");
     fprintf(out, "  --buffer_size = buffer size\n");
-    fprintf(out, "  --enable_inlining = Enable inlined data\n");
     fprintf(out, "  --enable_wpst = Enable weak persistence (300ns)\n");
     fprintf(out, "  --enable_spst = Enable strong persistence (2usec)\n");
     fprintf(out, "  --write_batch = Multiple writes before persisting\n");
     fprintf(out, "  --lazy_writes = Post all writes in one shot\n");
+    fprintf(out, "  --flush_latency = Latency between every flushes (ns)\n");
+    fprintf(out, "  --commit_latency = Latency between every persist (ns)\n");
+    fprintf(out, "  --const_cores = extra const for core pinning\n");
+    fprintf(out, "  --persistence = <num>\n");
+    for (i = 0; i < NUM_PERSISTENCE; ++i) {
+        fprintf(out, "      %d: %s\n", i, persistence_type[i].name);
+    }
 }
 
 void *mem_alloc(size_t alignment, size_t size, char *str)

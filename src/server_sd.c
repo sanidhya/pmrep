@@ -20,6 +20,8 @@ void handler(int sig)
     exit(0);
 }
 
+struct cmd_opt opt = {"192.168.0.1", 0, 0, 1000, 0, 0};
+
 static inline struct rwr_list_info *get_rnode(struct rwr_list_info *nodes,
                                               uint64_t id, uint64_t num_elems)
 {
@@ -207,6 +209,8 @@ static inline void handle_persistence(struct pdlist *pdlist)
                   MS_SYNC);
         }
         break;
+    default:
+        assert(0);
     }
 }
 
@@ -215,6 +219,7 @@ void *handle_req(void *arg)
     int tid = (uintptr_t)arg;
     struct rwr_list_info *rwr_node = NULL;
     struct pdlist *pdlist = NULL;
+    setaffinity(opt.const_cores + tid);
 
     while (stop_flag == 0) {
 
@@ -231,6 +236,11 @@ int main(int argc, char *argv[])
 {
     int i = 0;
     pthread_t th;
+
+    if (parse_options(argc, argv, &opt) < 1) {
+        usage(stderr, argv[0]);
+        return -1;
+    }
 
     signal(SIGINT, handler);
     memset(&pctx, 0, sizeof(pctx));

@@ -64,19 +64,6 @@
 #define RDMA_PORT       "20480"
 #define PASSIVE_NODE_IP "192.168.0.1" /* bumblebee */
 
-typedef enum {
-    NO_PERSISTENCE_DDIO,
-    NO_PERSISTENCE_NODDIO,
-    WEAK_PERSISTENCE_WITH_ADR_DDIO,
-    WEAK_PERSISTENCE_WITH_ADR_NODDIO,
-    WEAK_PERSISTENCE_WITH_eADR_DDIO,
-    WEAK_PERSISTENCE_WITH_eADR_NODDIO,
-    STRONG_PERSISTENCE_WITH_ADR_DDIO,
-    STRONG_PERSISTENCE_WITH_ADR_NODDIO,
-    STRONG_PERSISTENCE_WITH_eADR_DDIO,
-    STRONG_PERSISTENCE_WITH_eADR_NODDIO,
-}persistence_t;
-
 struct remote_regdata {
     uint64_t buf_va;
     uint32_t buf_rkey;
@@ -92,11 +79,6 @@ struct pdlist {
     uint32_t elems;
     uint64_t wr_id;
     struct pdentry list[MAX_COMPOUND_ENTRIES];
-};
-
-struct error_name {
-    int value;
-    char *name;
 };
 
 struct swr_list_info {
