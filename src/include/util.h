@@ -94,6 +94,7 @@ struct cmd_opt {
     int         pt;
     /* max cores allowed to run on the server side */
     int         max_cores;
+    int         duration;
 };
 
 extern struct error_name persistence_type[];

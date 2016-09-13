@@ -157,6 +157,8 @@ void *run_bench(void *arg)
     for (i = 0; i < opt.iterations; i++) {
         size_t j = 0;
         for (j = 0; j < opt.write_batch_count; ++j) {
+            //start += L1D_CACHELINE_BYTES;
+            //start += PAGE_SIZE;
             if (start >= eindex)
                 start = sindex;
             if (start + opt.buffer_size > eindex)

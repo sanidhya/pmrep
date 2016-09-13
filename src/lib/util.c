@@ -105,6 +105,7 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
         {"const_cores",         required_argument, 0, 't'},
         {"persistence",         required_argument, 0, 'e'},
         {"max_cores",           required_argument, 0, 'x'},
+        {"duration",            required_argument, 0, 'd'},
         {0,                     0,                 0, 0},
     };
     int arg_cnt;
@@ -112,7 +113,7 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
     for (arg_cnt = 0; 1; ++arg_cnt) {
         int c, idx = 0;
         c = getopt_long(argc, argv,
-                        "s:p:n:j:b:i:c:m:w:l:f:o:t:e:x:", options, &idx);
+                        "s:p:n:j:b:i:c:m:w:l:f:o:t:e:x:d:", options, &idx);
         if (c == -1)
             break;
         switch(c) {
@@ -161,6 +162,9 @@ int parse_options(int argc, char *argv[], struct cmd_opt *opt)
         case 'x':
             opt->max_cores = atoi(optarg);
             break;
+        case 'd':
+            opt->duration = atoi(optarg);
+            break;
         default:
             return -EINVAL;
         }
@@ -185,6 +189,7 @@ void usage(FILE *out, char *progname)
     fprintf(out, "  --commit_latency = Latency between every persist (ns)\n");
     fprintf(out, "  --const_cores = extra const for core pinning\n");
     fprintf(out, "  --max_cores = max threads to handle requests (server)\n");
+    fprintf(out, "  --duratoin = duration for the emulate benchmark\n");
     fprintf(out, "  --persistence = <num>\n");
     for (i = 0; i < NUM_PERSISTENCE; ++i) {
         fprintf(out, "      %d: %s\n", i, persistence_type[i].name);
@@ -345,8 +350,8 @@ struct clflush_overhead_pair cpair[] = {
 inline void clflushopt_overhead(size_t size)
 {
     int i;
-    for (i = 0; i < 22; ++i) {
-        if (size >= cpair[i].size)
+    for (i = 1; i < 22; ++i) {
+        if (size == cpair[i].size)
             break;
     }
     if (i == 22)
