@@ -130,7 +130,7 @@ static inline void poll_recv_cq(struct ibv_cq *cq, struct ibv_wc *wc)
 
     do {
         n = ibv_poll_cq(cq, 1, wc);
-        dprintf("thread: %d, looping for id: %lu\n", thread_id, wc->wr_id);
+        //dprintf("thread: %d, looping for id: %lu\n", thread_id, wc->wr_id);
     } while (n == 0);
 
     if (wc->status != IBV_WC_SUCCESS) {

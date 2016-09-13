@@ -12,13 +12,6 @@
 
 #define ____cacheline_aligned   __attribute__ ((aligned (L1D_CACHELINE_BYTES)))
 
-typedef int bool;
-
-enum {
-    false,
-    true
-};
-
 static inline void smp_rmb(void)
 {
     __asm __volatile("lfence":::"memory");
