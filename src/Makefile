@@ -31,4 +31,14 @@ include/config.h: getdevinfo.py
 clean:
 	rm -f $(APPS) $(LIB) include/config.h
 
+tags:
+	ctags * -R
+
+cscope:
+	@find . -name '*.[h|c]' > cscope.files
+	@cscope -b -q -k
+
+distclean: clean
+	rm -f tags cscope.*
+
 .PHONY: clean all
