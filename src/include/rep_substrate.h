@@ -3,7 +3,6 @@
 
 #include <pthread.h>
 #include <sys/types.h>
-#include <infiniband/arch.h>
 #include <rdma/rdma_cma.h>
 
 #include "arch.h"
