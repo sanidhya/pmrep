@@ -11,6 +11,7 @@ IB_INFO = {"max_qp:": "MAX_QPS",
 
 IB_NUMS = {}
 CONST_WRS = 512
+DFLT_IB_VAL = 1024
 
 HEADER = """#ifndef __CONFIG_H_
 #define __CONFIG_H_\n
@@ -21,18 +22,25 @@ FOOTER = """\n#endif /* __CONFIG_H_ */"""
 
 def run_cmd(args):
     args = shlex.split(args)
-    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=None)
-    return p.communicate()[0]
+    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return p.communicate()
 
 
 def main():
-    num_cores = int(run_cmd("grep -c processor /proc/cpuinfo"))
-    ibv_output = run_cmd("ibv_devinfo -vvv").split('\n')
-    for i in ibv_output:
+    num_cores = int(run_cmd("grep -c processor /proc/cpuinfo")[0])
+    res = run_cmd("ibv_devinfo -vvv")
+    ibv_output = ''
+    if res[1]:
+        print('// filling dummy value for compilation')
         for key in IB_INFO:
-            if key in i:
-                a = [int(s) for s in i.split('\t') if s.isdigit()][0]
-                IB_NUMS.update({IB_INFO[key]: a})
+            IB_NUMS.update({IB_INFO[key]: DFLT_IB_VAL})
+    else:
+        ibv_output = res[0].split('\n')
+        for i in ibv_output:
+            for key in IB_INFO:
+                if key in i:
+                    a = [int(s) for s in i.split('\t') if s.isdigit()][0]
+                    IB_NUMS.update({IB_INFO[key]: a})
     const_wrs = CONST_WRS
     if const_wrs <= num_cores:
         const_wrs = 2 * num_cores
@@ -51,19 +59,18 @@ def main():
     IB_NUMS.update({"PER_CORE_RECV_WRS": per_core_recv_wrs})
     IB_NUMS.update({"ONLINE_CORES": num_cores})
 
-    print HEADER
+    print(HEADER)
     for key, value in IB_NUMS.iteritems():
-        print "#define %s %d" % (key, value)
+        print("#define %s %d" % (key, value))
 
-    print ''
+    print('')
     with open('CONF', 'r') as f:
         content = f.readlines()
         for i in content:
             v = i.split('=')
-            print "#define %s \"%s\"" % (v[0].strip(' '),
-                                         v[1].strip('\n').strip(' '))
-    print FOOTER
-    file.close
+            print("#define %s \"%s\"" % (v[0].strip(' '),
+                                         v[1].strip('\n').strip(' ')))
+    print(FOOTER)
 
 if __name__ == '__main__':
     main()
