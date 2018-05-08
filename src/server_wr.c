@@ -263,8 +263,8 @@ void *handle_req(void *arg)
     while (stop_flag == 0) {
 
         clock_gettime(CLOCK_MONOTONIC, &start_t);
-        while (value == buffer[stride]){
-            smp_rmb();
+        while (value == READ_ONCE(buffer[stride])){
+                cpu_relax();
         }
         clock_gettime(CLOCK_MONOTONIC, &end_t);
         stride += PAGE_SIZE;

@@ -33,10 +33,53 @@ static inline void smp_cmb(void)
 }
 
 #define smp_wmb_tso()       smp_cmb()
+#define barrier()           smp_cmb()
 
 /* Compiler hints */
 #define likely(x)   __builtin_expect((long int)(x),1)
 #define unlikely(x) __builtin_expect((long int)(x),0)
+
+static inline void __write_once_size(volatile void *p, void *res, int size)
+{
+        switch(size) {
+        case 1: *(volatile uint8_t *)p = *(uint8_t *)res; break;
+        case 2: *(volatile uint16_t *)p = *(uint16_t *)res; break;
+        case 4: *(volatile uint32_t *)p = *(uint32_t *)res; break;
+        case 8: *(volatile uint64_t *)p = *(uint64_t *)res; break;
+        default:
+                barrier();
+                memcpy((void *)p, (const void *)res, size);
+                barrier();
+        }
+}
+
+static inline void __read_once_size(volatile void *p, void *res, int size)
+{
+        switch(size) {
+        case 1: *(uint8_t *)res = *(volatile uint8_t *)p; break;
+        case 2: *(uint16_t *)res = *(volatile uint16_t *)p; break;
+        case 4: *(uint32_t *)res = *(volatile uint32_t *)p; break;
+        case 8: *(uint64_t *)res = *(volatile uint64_t *)p; break;
+        default:
+                barrier();
+                memcpy((void *)res, (const void *)p, size);
+                barrier();
+        }
+}
+#define WRITE_ONCE(x, val)                                      \
+        ({                                                      \
+         union { typeof(x) __val; char __c[1]; } __u =          \
+                { .__val = (typeof(x)) (val) };                 \
+        __write_once_size(&(x), __u.__c, sizeof(x));            \
+        __u.__val;                                              \
+         })
+
+#define READ_ONCE(x)                                            \
+        ({                                                      \
+         union { typeof(x) __val; char __c[1]; } __u;           \
+         __read_once_size(&(x), __u.__c, sizeof(x));            \
+         __u.__val;                                             \
+         })
 
 /*
  * atomic opeartions
