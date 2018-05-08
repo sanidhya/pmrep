@@ -11,8 +11,7 @@ else
 endif
 CFLAGS += $(FLAGS)
 
-APPS := server_rd client_wr_rd client_wr_sd server_sd client_wr_wr server_wr \
-		emulate
+APPS := server_wr
 
 LIBSRC = include/config.h lib/util.c lib/rep_substrate.c
 LIB = $(patsubst %.c, %.o, $(LIBSRC))
@@ -21,21 +20,7 @@ all: $(APPS) $(IBVCONF)
 
 conf: $(IBVCONF)
 
-client_rd: $(LIB)
-
-server_rd: $(LIB)
-
-client_wr_rd: $(LIB)
-
-client_wr_sd: $(LIB)
-
-server_sd: $(LIB)
-
 server_wr: $(LIB)
-
-emulate: $(LIB)
-
-client_wr_wr: $(LIB)
 
 %.o: lib/%.c $(conf)
 	$(CC) $(CFLAGS) -c -o $@ $^
