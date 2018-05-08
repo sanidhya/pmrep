@@ -14,7 +14,7 @@ CFLAGS += $(FLAGS)
 APPS := server_rd client_wr_rd client_wr_sd server_sd client_wr_wr server_wr \
 		emulate
 
-LIBSRC = lib/util.c lib/rep_substrate.c
+LIBSRC = include/config.h lib/util.c lib/rep_substrate.c
 LIB = $(patsubst %.c, %.o, $(LIBSRC))
 
 all: $(APPS) $(IBVCONF)
