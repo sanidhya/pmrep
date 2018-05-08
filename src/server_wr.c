@@ -238,22 +238,27 @@ static inline void calculate_avg(uint64_t *diff, int count)
     }
 
     count--;
-    fprintf(stderr, "count: %d avg till now: %lf last: %ld\n", count, avg / (double)count, diff[count]);
+    fprintf(stderr, "count: %d avg till now: %lf last: %ld\n", count,
+            avg / (double)count, diff[count]);
 }
 
 void *handle_req(void *arg)
 {
     int tid = (uintptr_t)arg;
     struct rwr_list_info *rwr_node = NULL;
-    setaffinity(opt.const_cores + tid);
     struct timespec start_t, end_t;
-    timediff = mem_alloc_pgalign(sizeof(uint64_t) * 10000, "");
-    assert(pctx.common_buffer);
     volatile uint32_t value = 0;
     int count = 0;
     uint32_t *buffer = (uint32_t *)pctx.common_buffer;
     uint64_t stride = 0;
     uint64_t buf_size = pctx.thread_blocks[0].flush_bufinfo.size;
+
+
+    setaffinity(opt.const_cores + tid);
+
+    timediff = mem_alloc_pgalign(sizeof(uint64_t) * 10000, "");
+
+    assert(pctx.common_buffer);
 
     while (stop_flag == 0) {
 
