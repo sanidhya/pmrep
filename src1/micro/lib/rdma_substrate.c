@@ -338,6 +338,12 @@ void setup_qp_attributes(struct ibv_qp_init_attr *qp_attr, rep_ctx_t *pctx)
     qp_attr->cap.max_send_sge = MAX_SEND_SGES;
     qp_attr->cap.max_recv_sge = MAX_RECV_SGES;
     qp_attr->cap.max_inline_data = MAX_INLINE_DATA;
+
+    dprintf("cap.max_send_wr: %i\n", qp_attr->cap.max_send_wr);
+    dprintf("cap.max_recv_wr: %i\n", qp_attr->cap.max_recv_wr);
+    dprintf("cap.max_send_sge: %i\n", qp_attr->cap.max_send_sge);
+    dprintf("cap.max_recv_sge: %i\n", qp_attr->cap.max_recv_sge);
+    dprintf("cap.max_inline_data: %i\n", qp_attr->cap.max_inline_data);
 }
 
 void setup_cm_parameters(struct rdma_conn_param *cm_param)

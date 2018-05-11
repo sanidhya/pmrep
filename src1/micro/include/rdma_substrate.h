@@ -27,8 +27,8 @@
  */
 #define MAX_SEND_SGES   1
 #define MAX_RECV_SGES   MAX_SEND_SGES
-#define MAX_RECV_WRS    255
-#define MAX_PERSIST_WRS 255
+#define MAX_RECV_WRS    1
+#define MAX_PERSIST_WRS 1
 
 /*
  * max number of compound writes for sends
