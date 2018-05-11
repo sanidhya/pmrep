@@ -32,6 +32,7 @@
                         printf("[%s, %s: %d] assertion failer: %s: ",          \
                                 __FILE__, __func__, __LINE__, #cond);          \
                         perror("");                                            \
+                        fflush(stderr);                                        \
                         assert(cond);                                          \
                 }                                                              \
         } while(0);
