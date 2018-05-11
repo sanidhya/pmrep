@@ -387,16 +387,18 @@ static void update_wr_info(rep_ctx_t *pctx)
     pctx->total_persist_wrs = num_threads * pctx->pt_persist_wrs;
     pctx->pt_flush_wrs = (MAX_WRS - (pctx->pt_recv_wrs * 2) - 1) / num_threads;
     pctx->total_flush_wrs = pctx->pt_flush_wrs * num_threads;
+
+    dprintf("pt_flush_wrs: %ld\n", pctx->pt_flush_wrs);
+    dprintf("total_flush_wrs: %ld\n", pctx->total_flush_wrs);
+    dprintf("total_persist_wrs: %ld\n", pctx->total_persist_wrs);
 }
 
 
 static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
                                 int alloc_write_buffer)
 {
-    uint64_t i;
     int t;
     struct thread_block *tblocks;
-    int num_threads = pctx->num_threads;
     int total_send_wrs;
     int total_recv_wrs;
     size_t rd_size;
@@ -405,10 +407,13 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     size_t pdlist_size;
     size_t rbuf_size;
     uint64_t rbuf_ptr;
+    uint64_t i;
+    int num_threads = pctx->num_threads;
 
 
     update_wr_info(pctx);
     total_send_wrs = pctx->total_flush_wrs + pctx->total_persist_wrs;
+
     total_recv_wrs = pctx->total_recv_wrs;
     rd_size = num_threads * OPS_TYPE * sizeof(struct remote_regdata);
     max_rdsize = ONLINE_CORES * OPS_TYPE * sizeof(struct remote_regdata);
@@ -424,6 +429,7 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
                                             "Thread alloc");
     tblocks = pctx->thread_blocks;
     /* allocate all the send and recv wrnodes */
+    dprintf("sizeof of total_send_wrs: %d\n", total_send_wrs);
     pctx->persist_wrnodes = mem_alloc_pgalign(sizeof(struct swr_list_info) *
                                            total_send_wrs, "Send wrs");
     dassert(pctx->persist_wrnodes);
