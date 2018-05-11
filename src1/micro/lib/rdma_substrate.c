@@ -286,19 +286,6 @@ static inline void clean_write_list(rep_ctx_t *pctx, int thread_id)
     }
 }
 
-static inline void free_persist_lists(rep_ctx_t *pctx, uint64_t id,
-                                      int thread_id)
-{
-    struct swr_list_info *send_node = &pctx->persist_wrnodes[id];
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->persist_bufinfo;
-
-    clean_write_list(pctx, thread_id);
-    pctx->persist_cq_bits[id] = 0;
-    smp_wmb();
-    list_move(&send_node->node, &minfo->free_lhead);
-}
-
 inline void flush_data_simple(rep_ctx_t *pctx, void *addr,
                        size_t bytes, int lazy_write, int thread_id)
 {
@@ -325,16 +312,6 @@ inline void flush_data_simple(rep_ctx_t *pctx, void *addr,
     sge = &pos->sge;
     assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
 
-    if (!pctx->persist_with_reads) {
-        struct buf_metainfo *pminfo = &tblock->persist_bufinfo;
-        struct pdlist *pdlist = (struct pdlist *)pminfo->buffer;
-        uint32_t elems = pdlist->elems;
-
-        pdlist->list[elems].ptr = remote_addr;
-        pdlist->list[elems].len = bytes;
-        pdlist->elems++;
-    }
-
     update_sge(sge, (uintptr_t)addr, bytes, minfo->mr->lkey);
     update_send_wr(wr, sge, IBV_WR_RDMA_WRITE,
                    write_signaled?IBV_SEND_SIGNALED:IBV_SEND_NOSIGNAL,
@@ -347,51 +324,6 @@ inline void flush_data_simple(rep_ctx_t *pctx, void *addr,
         poll_send_cq(pctx, wr->wr_id, thread_id);
         clean_write_list(pctx, thread_id);
     }
-}
-
-void persist_data_wsend(rep_ctx_t *pctx, persistence_t pt, int thread_id)
-{
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->persist_bufinfo;
-    struct swr_list_info *pos, *tmp;
-    struct rwr_list_info *rwr_node;
-    struct pdlist *pdlist = (struct pdlist *)minfo->buffer;
-    struct ibv_send_wr *wr = NULL;
-    struct ibv_sge *sge = NULL;
-    size_t send_size;
-    int ret = 0;
-
-    list_for_each_entry_safe(pos, tmp, &minfo->free_lhead, node) {
-        list_move_tail(&pos->node, &minfo->busy_lhead);
-        break;
-    }
-
-    pdlist->pt = pt;
-    send_size = sizeof(struct pdlist) - (sizeof(struct pdentry) *
-                                        (MAX_COMPOUND_ENTRIES - pdlist->elems));
-
-    wr = &pos->wr;
-    sge = &pos->sge;
-    pdlist->wr_id = wr->wr_id;
-    assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
-    update_sge(sge, (uintptr_t)pdlist, send_size, minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_SEND, IBV_SEND_SIGNALED, NOVALUE, NOVALUE);
-    ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
-    assert(ret == 0);
-    assert(pos->bad_wr == NULL);
-    poll_send_cq(pctx, wr->wr_id, thread_id);
-
-    pdlist->elems = 0;
-    free_persist_lists(pctx, wr->wr_id, thread_id);
-
-    /* get the recv wr id from the recv cq and then post it again */
-    rwr_node = poll_recv_cq_client(pctx, wr->wr_id, thread_id);
-    get_and_post_recv_wr(pctx, rwr_node, wr->wr_id);
-}
-
-void persist_data_with_complex_writes(rep_ctx_t *pctx, persistence_t pt,
-                                      int thread_id)
-{
 }
 
 void setup_qp_attributes(struct ibv_qp_init_attr *qp_attr, rep_ctx_t *pctx)
@@ -531,10 +463,6 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
                                &pctx->remote_data[t * OPS_TYPE], t, 0,
                                pctx->pt_flush_wrs);
 
-        init_metainfo_send(pctx, &tblocks[t].persist_bufinfo, 1, NULL,
-                           sizeof(struct pdlist), "Send",
-                           &pctx->remote_data[t * OPS_TYPE + 2], t,
-                           pctx->total_flush_wrs, pctx->pt_persist_wrs);
     }
 
     pctx->persist_cq_bits = mem_alloc_pgalign(MAX_WRS, "Persist cq bits");
@@ -785,11 +713,6 @@ void setup_memory_region_server(rep_ctx_t *pctx, size_t buffer_size)
         pctx->remote_data[OPS_TYPE * i].buf_rkey =
             pctx->thread_blocks[i].flush_bufinfo.mr->rkey;
 
-        pctx->remote_data[OPS_TYPE * i + 2].buf_va =
-                (uintptr_t)pctx->thread_blocks[i].persist_bufinfo.buffer;
-        pctx->remote_data[OPS_TYPE * i + 2].buf_rkey =
-                pctx->thread_blocks[i].persist_bufinfo.mr->rkey;
-
     }
 
     setup_cm_parameters(&cm_param);
@@ -872,8 +795,6 @@ void clear_region(rep_ctx_t *pctx, int free_buffer)
         if (i == 0)
             dealloc_metainfo(&pctx->thread_blocks[i].flush_bufinfo,
                              free_buffer);
-        else
-            dealloc_metainfo(&pctx->thread_blocks[i].persist_bufinfo, 1);
     }
 
     ibv_dereg_mr(pctx->ctrl_bufinfo.mr);

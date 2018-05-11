@@ -160,8 +160,6 @@ struct rep_ctx;
 struct thread_block {
     /* write buffer metainfo */
     struct buf_metainfo     flush_bufinfo ____cacheline_aligned;
-    /* send buffer metainfo */
-    struct buf_metainfo     persist_bufinfo ____cacheline_aligned;
 
     uint64_t                recv_posted_count;
     struct rep_ctx          *pctx;
