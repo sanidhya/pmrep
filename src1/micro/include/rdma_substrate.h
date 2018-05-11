@@ -103,6 +103,7 @@ struct rdma_cm {
     struct rdma_event_channel   *ec;
     struct rdma_cm_event        *event;
     struct rdma_cm_id           *id;
+    struct rdma_cm_id           *id_ctrl;
     struct rdma_cm_id           *sid;
 
     /* ib stuff */
@@ -161,11 +162,9 @@ struct thread_block {
     struct buf_metainfo     flush_bufinfo ____cacheline_aligned;
     /* send buffer metainfo */
     struct buf_metainfo     persist_bufinfo ____cacheline_aligned;
-    /* read buffer metainfo */
-    struct buf_metainfo     read_bufinfo ____cacheline_aligned;
 
     uint64_t                recv_posted_count;
-    struct rep_ctx        *pctx;
+    struct rep_ctx          *pctx;
 };
 
 struct ctrl_bufinfo {

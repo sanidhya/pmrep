@@ -286,18 +286,6 @@ static inline void clean_write_list(rep_ctx_t *pctx, int thread_id)
     }
 }
 
-static inline void free_read_lists(rep_ctx_t *pctx, uint64_t id, int thread_id)
-{
-    struct swr_list_info *send_node = &pctx->persist_wrnodes[id];
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->read_bufinfo;
-
-    clean_write_list(pctx, thread_id);
-    pctx->persist_cq_bits[id] = 0;
-    smp_wmb();
-    list_move(&send_node->node, &minfo->free_lhead);
-}
-
 static inline void free_persist_lists(rep_ctx_t *pctx, uint64_t id,
                                       int thread_id)
 {
@@ -359,39 +347,6 @@ inline void flush_data_simple(rep_ctx_t *pctx, void *addr,
         poll_send_cq(pctx, wr->wr_id, thread_id);
         clean_write_list(pctx, thread_id);
     }
-}
-
-inline void persist_data_wread(rep_ctx_t *pctx, int thread_id)
-{
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->read_bufinfo;
-    struct swr_list_info *pos, *tmp;
-    struct ibv_send_wr *wr;
-    struct ibv_sge *sge;
-    int ret = 0;
-
-    list_for_each_entry_safe(pos, tmp, &minfo->free_lhead, node) {
-        list_move_tail(&pos->node, &minfo->busy_lhead);
-        break;
-    }
-
-    wr = &pos->wr;
-    sge = &pos->sge;
-    assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
-    update_sge(sge, (uintptr_t)minfo->buffer, sizeof(int), minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_RDMA_READ, IBV_SEND_SIGNALED,
-                   minfo->remote_data->buf_va,
-                   minfo->remote_data->buf_rkey);
-
-    ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
-    assert(ret == 0);
-    if (pos->bad_wr) {
-        fprintf(stderr, "id: %lu, opcode: %d, posted id: %lu\n",
-                pos->bad_wr->wr_id, pos->bad_wr->opcode, wr->wr_id);
-    }
-
-    poll_send_cq(pctx, wr->wr_id, thread_id);
-    free_read_lists(pctx, wr->wr_id, thread_id);
 }
 
 void persist_data_wsend(rep_ctx_t *pctx, persistence_t pt, int thread_id)
@@ -576,16 +531,10 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
                                &pctx->remote_data[t * OPS_TYPE], t, 0,
                                pctx->pt_flush_wrs);
 
-        if (pctx->persist_with_reads)
-            init_metainfo_send(pctx, &tblocks[t].read_bufinfo, 1, NULL,
-                               L1D_CACHELINE_BYTES, "Read",
-                               &pctx->remote_data[t * OPS_TYPE + 1], t,
-                               pctx->total_flush_wrs, pctx->pt_persist_wrs);
-        else
-            init_metainfo_send(pctx, &tblocks[t].persist_bufinfo, 1, NULL,
-                               sizeof(struct pdlist), "Send",
-                               &pctx->remote_data[t * OPS_TYPE + 2], t,
-                               pctx->total_flush_wrs, pctx->pt_persist_wrs);
+        init_metainfo_send(pctx, &tblocks[t].persist_bufinfo, 1, NULL,
+                           sizeof(struct pdlist), "Send",
+                           &pctx->remote_data[t * OPS_TYPE + 2], t,
+                           pctx->total_flush_wrs, pctx->pt_persist_wrs);
     }
 
     pctx->persist_cq_bits = mem_alloc_pgalign(MAX_WRS, "Persist cq bits");
@@ -836,21 +785,11 @@ void setup_memory_region_server(rep_ctx_t *pctx, size_t buffer_size)
         pctx->remote_data[OPS_TYPE * i].buf_rkey =
             pctx->thread_blocks[i].flush_bufinfo.mr->rkey;
 
-        if (pctx->persist_with_reads) {
-
-            pctx->remote_data[OPS_TYPE * i + 1].buf_va =
-                (uintptr_t)pctx->thread_blocks[i].read_bufinfo.buffer;
-            pctx->remote_data[OPS_TYPE * i + 1].buf_rkey =
-                pctx->thread_blocks[i].read_bufinfo.mr->rkey;
-
-        } else {
-
-            pctx->remote_data[OPS_TYPE * i + 2].buf_va =
+        pctx->remote_data[OPS_TYPE * i + 2].buf_va =
                 (uintptr_t)pctx->thread_blocks[i].persist_bufinfo.buffer;
-            pctx->remote_data[OPS_TYPE * i + 2].buf_rkey =
+        pctx->remote_data[OPS_TYPE * i + 2].buf_rkey =
                 pctx->thread_blocks[i].persist_bufinfo.mr->rkey;
 
-        }
     }
 
     setup_cm_parameters(&cm_param);
@@ -933,8 +872,6 @@ void clear_region(rep_ctx_t *pctx, int free_buffer)
         if (i == 0)
             dealloc_metainfo(&pctx->thread_blocks[i].flush_bufinfo,
                              free_buffer);
-        if (pctx->persist_with_reads)
-            dealloc_metainfo(&pctx->thread_blocks[i].read_bufinfo, 1);
         else
             dealloc_metainfo(&pctx->thread_blocks[i].persist_bufinfo, 1);
     }

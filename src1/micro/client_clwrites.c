@@ -109,29 +109,6 @@ static inline void flush_data_remote(rep_ctx_t *pctx, uint8_t *buffer,
     assert(swr_node->bad_wr == NULL);
 }
 
-static inline void persist_data_remote(rep_ctx_t *pctx, int thread_id)
-{
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->read_bufinfo;
-    struct swr_list_info *swr_node = &pctx->persist_wrnodes[thread_id *
-                                  pctx->pt_persist_wrs + pctx->total_flush_wrs];
-    struct ibv_send_wr *wr = &swr_node->wr;
-    struct ibv_sge *sge = &swr_node->sge;
-    int ret = 0;
-
-    update_sge(sge, (uintptr_t)minfo->buffer, sizeof(int),
-               minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_RDMA_READ, IBV_SEND_SIGNALED,
-                   minfo->remote_data->buf_va,
-                   minfo->remote_data->buf_rkey);
-
-    ret = ibv_post_send(pctx->rcm.qp, wr, &swr_node->bad_wr);
-    assert(ret == 0);
-    assert(swr_node->bad_wr == NULL);
-
-    poll_send_cq(pctx, wr->wr_id, thread_id);
-}
-
 void *run_bench(void *arg)
 {
     int tid = (uintptr_t)arg;
@@ -167,8 +144,6 @@ void *run_bench(void *arg)
             flush_data_simple(&pctx, buf + start, opt.buffer_size, j, tid);
             //burn_cycles(opt.flush_latency);
         }
-        persist_data_wread(&pctx, tid);
-        //burn_cycles(opt.commit_latency);
     }
     clock_gettime(CLOCK_MONOTONIC, &end_t);
 
