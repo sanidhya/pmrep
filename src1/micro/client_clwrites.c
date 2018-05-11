@@ -7,8 +7,7 @@
 #include "rdma_substrate.h"
 #include "util.h"
 
-#define BUFFER_SIZE (1ULL << 32)
-#define BUFFER_GAP  (1ULL << 6)
+#define BUFFER_SIZE (1ULL << 12)
 
 static struct {
    volatile int start;
@@ -23,7 +22,17 @@ static struct {
 } *sync_state;
 
 rep_ctx_t pctx;
-struct cmd_opt opt = {"192.168.0.1", 0, 0, 1000, 0, 0};
+struct cmd_opt opt = {
+        .server_ip = "192.168.0.1",
+        .tcp_conn_port = 0,
+        .num_threads = 1,
+        .iterations = 1000,
+        .allow_inlined_data = 0,
+        .write_batch_count = 0,
+        .enable_lazy_writes = 0,
+        .const_cores = 0,
+        .duration = 0
+};
 
 static inline void poll_send_cq(rep_ctx_t *pctx, uint64_t id, int thread_id)
 {
@@ -153,7 +162,7 @@ void *run_bench(void *arg)
 
 static void waitup(void)
 {
-    uint64_t tot, max;
+        uint64_t tot, max;
 	int i;
 	double avg = 0.0;
 
@@ -169,9 +178,9 @@ static void waitup(void)
 		avg += (double)sync_state->cpu[i].latency;
 	}
 
-    avg /= (double)opt.iterations;
-    avg /= (double)pctx.num_threads;
-    avg /= 1000.0;
+        avg /= (double)opt.iterations;
+        avg /= (double)pctx.num_threads;
+        avg /= 1000.0;
 
 	printf("threads: %d iterations: %d avg-latency: %.3lf\n",
 	       pctx.num_threads, opt.iterations, avg);
@@ -196,6 +205,7 @@ int main(int argc, char *argv[])
         opt.buffer_size = 8;
     }
 
+    printf("num threads: %d\n", pctx.num_threads);
     setup_region_client(&pctx, buf, BUFFER_SIZE, opt.num_threads, 1);
 
     if (opt.write_batch_count == 0)
