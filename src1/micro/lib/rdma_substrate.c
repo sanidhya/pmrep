@@ -360,7 +360,9 @@ static void init_metainfo_send(rep_ctx_t *pctx, struct buf_metainfo *minfo,
         minfo->buffer = mem_alloc_pgalign(size, str);
     else
         minfo->buffer = ptr;
+
     dassert(minfo->buffer);
+
     minfo->size = size;
     INIT_LIST_HEAD(&minfo->busy_lhead);
     INIT_LIST_HEAD(&minfo->free_lhead);
@@ -395,15 +397,22 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     int t;
     struct thread_block *tblocks;
     int num_threads = pctx->num_threads;
-    update_wr_info(pctx);
-    int total_send_wrs = pctx->total_flush_wrs + pctx->total_persist_wrs;
-    int total_recv_wrs = pctx->total_recv_wrs;
-    size_t rd_size = num_threads * OPS_TYPE * sizeof(struct remote_regdata);
-    size_t max_rdsize = ONLINE_CORES * OPS_TYPE * sizeof(struct remote_regdata);
+    int total_send_wrs;
+    int total_recv_wrs;
+    size_t rd_size;
+    size_t max_rdsize;
     struct rwr_list_info *recv_wrnodes;
-    size_t pdlist_size = sizeof(struct pdlist);
+    size_t pdlist_size;
     size_t rbuf_size;
     uint64_t rbuf_ptr;
+
+
+    update_wr_info(pctx);
+    total_send_wrs = pctx->total_flush_wrs + pctx->total_persist_wrs;
+    total_recv_wrs = pctx->total_recv_wrs;
+    rd_size = num_threads * OPS_TYPE * sizeof(struct remote_regdata);
+    max_rdsize = ONLINE_CORES * OPS_TYPE * sizeof(struct remote_regdata);
+    pdlist_size = sizeof(struct pdlist);
 
     pctx->ctrl_bufinfo.buffer = mem_alloc_pgalign(max_rdsize, "Ctrl op");
     pctx->ctrl_bufinfo.mr = ibv_reg_mr(pctx->rcm.pd, pctx->ctrl_bufinfo.buffer,

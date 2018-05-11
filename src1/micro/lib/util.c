@@ -169,6 +169,9 @@ void *mem_alloc(size_t alignment, size_t size, char *str)
     void *buffer = NULL;
     int ret;
 
+    dprintf("allocating %s of size %ld with alignment %ld\n",
+            str, size, alignment);
+
     ret = posix_memalign((void **)&buffer, alignment, size);
     if (buffer == NULL) {
         fprintf(stderr, "posix_memalign failed for %s with error %s\n",

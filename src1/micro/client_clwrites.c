@@ -7,7 +7,7 @@
 #include "rdma_substrate.h"
 #include "util.h"
 
-#define BUFFER_SIZE (1ULL << 12)
+#define BUFFER_SIZE (40960)
 
 static struct {
    volatile int start;
@@ -51,10 +51,10 @@ static inline void poll_send_cq(rep_ctx_t *pctx, uint64_t id, int thread_id)
                                    correct_msg, L1D_CACHELINE_BYTES),
                 get_wr_status_name(wc.status,
                                    wrong_msg, L1D_CACHELINE_BYTES));
-        assert(0);
+        dassert(0);
 
     }
-    assert(wc.wr_id <= pctx->total_flush_wrs + pctx->total_persist_wrs);
+    dassert(wc.wr_id <= pctx->total_flush_wrs + pctx->total_persist_wrs);
     dprintf("thread: %d wc.wr_id: %lu id: %lu\n", thread_id, wc.wr_id, id);
     pctx->persist_cq_bits[wc.wr_id] = 1;
     smp_wmb();
@@ -114,8 +114,8 @@ static inline void flush_data_remote(rep_ctx_t *pctx, uint8_t *buffer,
                    minfo->remote_data->buf_va + offset,
                    minfo->remote_data->buf_rkey);
     ret = ibv_post_send(pctx->rcm.qp, wr, &swr_node->bad_wr);
-    assert(ret == 0);
-    assert(swr_node->bad_wr == NULL);
+    dassert(ret == 0);
+    dassert(swr_node->bad_wr == NULL);
 }
 
 void *run_bench(void *arg)
@@ -206,7 +206,7 @@ int main(int argc, char *argv[])
     }
 
     printf("num threads: %d\n", pctx.num_threads);
-    setup_region_client(&pctx, buf, BUFFER_SIZE, opt.num_threads, 1);
+    setup_region_client(&pctx, buf, BUFFER_SIZE, opt.num_threads);
 
     if (opt.write_batch_count == 0)
         opt.write_batch_count = 1;
@@ -214,7 +214,7 @@ int main(int argc, char *argv[])
     opt.enable_lazy_writes = 0;
 
     for (i = 1; i < opt.num_threads; ++i) {
-        assert(pthread_create(&th, NULL, run_bench, (void *)(intptr_t)i) == 0);
+        dassert(pthread_create(&th, NULL, run_bench, (void *)(intptr_t)i) == 0);
         while (!sync_state->cpu[i].ready)
             smp_rmb();
     }
