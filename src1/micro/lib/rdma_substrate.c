@@ -119,7 +119,7 @@ static inline struct rwr_list_info *get_rnode(struct rwr_list_info *nodes,
             return &nodes[i];
     }
     /* XXX: this should never happen */
-    assert(0);
+    dassert(0);
     return NULL;
 }
 
@@ -138,7 +138,7 @@ static inline void poll_recv_cq(struct ibv_cq *cq, struct ibv_wc *wc)
                                    correct_msg, L1D_CACHELINE_BYTES),
                 get_wr_status_name(wc->status,
                                    wrong_msg, L1D_CACHELINE_BYTES));
-        assert(0);
+        dassert(0);
 
     }
 }
@@ -150,7 +150,7 @@ static inline struct rwr_list_info *poll_recv_cq_server(rep_ctx_t *pctx,
 
     poll_recv_cq(pctx->rcm.recv_cq, &wc);
     dprintf("thread: %d id: %lu\n", thread_id, wc.wr_id);
-    assert(wc.wr_id >= pctx->total_flush_wrs + pctx->total_persist_wrs);
+    dassert(wc.wr_id >= pctx->total_flush_wrs + pctx->total_persist_wrs);
     return get_rnode(pctx->recv_bufinfo.recv_wrnodes, wc.wr_id,
                      pctx->total_recv_wrs);
 }
@@ -163,7 +163,7 @@ static inline struct rwr_list_info *poll_recv_cq_client(rep_ctx_t *pctx,
     struct ibv_wc wc = {};
 
     poll_recv_cq(pctx->rcm.recv_cq, &wc);
-    assert(wc.wr_id >= pctx->total_flush_wrs + pctx->total_persist_wrs);
+    dassert(wc.wr_id >= pctx->total_flush_wrs + pctx->total_persist_wrs);
     rwr_node = get_rnode(pctx->recv_bufinfo.recv_wrnodes,
                          wc.wr_id, pctx->total_recv_wrs);
     pctx->recv_cq_bits[wc.imm_data] = 1;
@@ -192,10 +192,10 @@ static inline void poll_send_cq(rep_ctx_t *pctx, uint64_t id, int thread_id)
                                    correct_msg, L1D_CACHELINE_BYTES),
                 get_wr_status_name(wc.status,
                                    wrong_msg, L1D_CACHELINE_BYTES));
-        assert(0);
+        dassert(0);
 
     }
-    assert(wc.wr_id <= pctx->total_flush_wrs + pctx->total_persist_wrs);
+    dassert(wc.wr_id <= pctx->total_flush_wrs + pctx->total_persist_wrs);
     dprintf("thread: %d wc.wr_id: %lu id: %lu\n", thread_id, wc.wr_id, id);
     pctx->persist_cq_bits[wc.wr_id] = 1;
     smp_wmb();
@@ -210,7 +210,7 @@ static void inline update_sge(struct ibv_sge *sge, uint64_t addr,
                               uint32_t length, uint32_t lkey)
 {
 #ifdef DPRINT
-    assert(sge);
+    dassert(sge);
 #endif
     dprintf("SGE update addr: %lx len: %u\n", addr, length);
     sge->addr = addr;
@@ -258,8 +258,8 @@ static inline void get_and_post_recv_wr(rep_ctx_t *pctx,
 
     pctx->recv_cq_bits[sid] = 0;
     ret = ibv_post_recv(pctx->rcm.qp, &rwr_node->wr, &rwr_node->bad_wr);
-    assert(ret == 0);
-    assert(rwr_node->bad_wr == NULL);
+    dassert(ret == 0);
+    dassert(rwr_node->bad_wr == NULL);
 }
 
 static void post_recv_wr(struct ibv_qp *qp, struct rwr_list_info *rwr_node)
@@ -268,8 +268,8 @@ static void post_recv_wr(struct ibv_qp *qp, struct rwr_list_info *rwr_node)
     dprintf("ibv_post_recv wr id: %lu\n", rwr_node->wr.wr_id);
     memset(rwr_node->buffer, 0, rwr_node->size);
     ret = ibv_post_recv(qp, &rwr_node->wr, &rwr_node->bad_wr);
-    assert(ret == 0);
-    assert(rwr_node->bad_wr == NULL);
+    dassert(ret == 0);
+    dassert(rwr_node->bad_wr == NULL);
 }
 
 static inline void clean_write_list(rep_ctx_t *pctx, int thread_id)
@@ -310,15 +310,15 @@ inline void flush_data_simple(rep_ctx_t *pctx, void *addr,
 
     wr = &pos->wr;
     sge = &pos->sge;
-    assert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
+    dassert(wr->wr_id < pctx->total_flush_wrs + pctx->total_persist_wrs);
 
     update_sge(sge, (uintptr_t)addr, bytes, minfo->mr->lkey);
     update_send_wr(wr, sge, IBV_WR_RDMA_WRITE,
                    write_signaled?IBV_SEND_SIGNALED:IBV_SEND_NOSIGNAL,
                    remote_addr, minfo->remote_data->buf_rkey);
     ret = ibv_post_send(pctx->rcm.qp, wr, &pos->bad_wr);
-    assert(ret == 0);
-    assert(pos->bad_wr == NULL);
+    dassert(ret == 0);
+    dassert(pos->bad_wr == NULL);
 
     if (write_signaled) {
         poll_send_cq(pctx, wr->wr_id, thread_id);
@@ -360,7 +360,7 @@ static void init_metainfo_send(rep_ctx_t *pctx, struct buf_metainfo *minfo,
         minfo->buffer = mem_alloc_pgalign(size, str);
     else
         minfo->buffer = ptr;
-    assert(minfo->buffer);
+    dassert(minfo->buffer);
     minfo->size = size;
     INIT_LIST_HEAD(&minfo->busy_lhead);
     INIT_LIST_HEAD(&minfo->free_lhead);
@@ -369,7 +369,7 @@ static void init_metainfo_send(rep_ctx_t *pctx, struct buf_metainfo *minfo,
                       wr_gap].node, &minfo->free_lhead);
     minfo->remote_data = remote_data;
     minfo->mr = ibv_reg_mr(pctx->rcm.pd, minfo->buffer, size, IBV_ENABLE_RDWR);
-    assert(minfo->mr);
+    dassert(minfo->mr);
 }
 
 static void update_wr_info(rep_ctx_t *pctx)
@@ -408,7 +408,7 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     pctx->ctrl_bufinfo.buffer = mem_alloc_pgalign(max_rdsize, "Ctrl op");
     pctx->ctrl_bufinfo.mr = ibv_reg_mr(pctx->rcm.pd, pctx->ctrl_bufinfo.buffer,
                                        max_rdsize, IBV_ENABLE_RDWR);
-    assert(pctx->ctrl_bufinfo.mr);
+    dassert(pctx->ctrl_bufinfo.mr);
     pctx->ctrl_bufinfo.wr.wr_id = total_send_wrs;
 
     pctx->thread_blocks = mem_alloc_pgalign(num_threads * sizeof(*tblocks),
@@ -417,14 +417,14 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     /* allocate all the send and recv wrnodes */
     pctx->persist_wrnodes = mem_alloc_pgalign(sizeof(struct swr_list_info) *
                                            total_send_wrs, "Send wrs");
-    assert(pctx->persist_wrnodes);
+    dassert(pctx->persist_wrnodes);
     for (i = 0; i < total_send_wrs; ++i)
         pctx->persist_wrnodes[i].wr.wr_id = i;
 
     rbuf_size = sizeof(struct rwr_list_info) * total_recv_wrs;
     pctx->recv_bufinfo.recv_wrnodes =
         mem_alloc_pgalign(rbuf_size, "Receive wrs");
-    assert(pctx->recv_bufinfo.recv_wrnodes);
+    dassert(pctx->recv_bufinfo.recv_wrnodes);
 
     pctx->recv_bufinfo.size = pctx->total_recv_wrs * sizeof(struct pdlist);
     pctx->recv_bufinfo.buffer = mem_alloc_pgalign(pctx->recv_bufinfo.size,
@@ -432,7 +432,7 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     pctx->recv_bufinfo.mr = ibv_reg_mr(pctx->rcm.pd, pctx->recv_bufinfo.buffer,
                                        pctx->recv_bufinfo.size,
                                        IBV_ENABLE_RDWR);
-    assert(pctx->recv_bufinfo.mr);
+    dassert(pctx->recv_bufinfo.mr);
 
     recv_wrnodes = pctx->recv_bufinfo.recv_wrnodes;
     rbuf_ptr = (uintptr_t)pctx->recv_bufinfo.buffer;
@@ -466,9 +466,9 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     }
 
     pctx->persist_cq_bits = mem_alloc_pgalign(MAX_WRS, "Persist cq bits");
-    assert(pctx->persist_cq_bits);
+    dassert(pctx->persist_cq_bits);
     pctx->recv_cq_bits = mem_alloc_pgalign(MAX_WRS, "RECV cq bits");
-    assert(pctx->recv_cq_bits);
+    dassert(pctx->recv_cq_bits);
 }
 
 static inline void pre_post_all_recv_wrs(rep_ctx_t *pctx)
@@ -503,7 +503,7 @@ static inline void receive_mr_data(rep_ctx_t *pctx)
     do {
         ret = ibv_poll_cq(pctx->rcm.recv_cq, 1, &wc);
     } while (ret == 0);
-    assert(wc.status == IBV_WC_SUCCESS);
+    dassert(wc.status == IBV_WC_SUCCESS);
 
     /* got the buffer */
     for(i = 0; i < pctx->total_recv_wrs; ++i) {
@@ -535,29 +535,29 @@ static int setup_memory_region_client(rep_ctx_t *pctx, uint8_t *buffer,
 
     /* protection domain */
     pctx->rcm.pd = ibv_alloc_pd(pctx->rcm.ctx);
-    assert(pctx->rcm.pd != NULL);
+    dassert(pctx->rcm.pd != NULL);
 
     /* allocate memory for the reading */
     allocate_structures(pctx, buffer, buffer_size, !buffer?1:0);
 
     /* completion channel */
     pctx->rcm.comp_channel = ibv_create_comp_channel(pctx->rcm.ctx);
-    assert(pctx->rcm.comp_channel != NULL);
+    dassert(pctx->rcm.comp_channel != NULL);
 
     /* completion queue */
     pctx->rcm.send_cq = ibv_create_cq(pctx->rcm.ctx, NUM_CQES, NULL,
                                       pctx->rcm.comp_channel, 0);
-    assert(pctx->rcm.send_cq != NULL);
+    dassert(pctx->rcm.send_cq != NULL);
 
     pctx->rcm.recv_cq = ibv_create_cq(pctx->rcm.ctx, NUM_CQES, NULL,
                                       pctx->rcm.comp_channel, 0);
-    assert(pctx->rcm.recv_cq != NULL);
+    dassert(pctx->rcm.recv_cq != NULL);
 
     setup_qp_attributes(&qp_attr, pctx);
 
     /* creating the queue-pairs */
     ret = rdma_create_qp(pctx->rcm.id, pctx->rcm.pd, &qp_attr);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     pctx->rcm.qp = pctx->rcm.id->qp;
 
@@ -566,12 +566,12 @@ static int setup_memory_region_client(rep_ctx_t *pctx, uint8_t *buffer,
     /* time to connect */
     setup_cm_parameters(&cm_param);
     ret = rdma_connect(pctx->rcm.id, &cm_param);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
-    assert(ret == 0);
+    dassert(ret == 0);
 
-    assert(pctx->rcm.event->event == RDMA_CM_EVENT_ESTABLISHED);
+    dassert(pctx->rcm.event->event == RDMA_CM_EVENT_ESTABLISHED);
 
     /* getting the data from the server about the address and the length */
     memcpy(pctx->remote_data, pctx->rcm.event->param.conn.private_data,
@@ -584,8 +584,8 @@ static int setup_memory_region_client(rep_ctx_t *pctx, uint8_t *buffer,
     return 0;
 }
 
-int setup_region_client(rep_ctx_t *pctx, uint8_t *buffer, size_t buffer_size,
-                        int num_threads, int persist_with_reads)
+int setup_region_client(rep_ctx_t *pctx, uint8_t *buffer,
+                        size_t buffer_size, int num_threads)
 {
     struct addrinfo *addr;
     int ret = 0;
@@ -595,43 +595,42 @@ int setup_region_client(rep_ctx_t *pctx, uint8_t *buffer, size_t buffer_size,
 
     memset(rdma_port, 0, sizeof(rdma_port));
     ret = client_getset_info(buffer_size, PASSIVE_NODE_IP,
-                             num_threads, persist_with_reads);
+                             num_threads, 0);
     sprintf(rdma_port, "%d", ret);
 
-    pctx->persist_with_reads = persist_with_reads;
-    assert(num_threads <= ONLINE_CORES);
+    dassert(num_threads <= ONLINE_CORES);
     pctx->num_threads = num_threads;
     /* connection setup */
     ret = getaddrinfo(PASSIVE_NODE_IP, rdma_port, NULL, &addr);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     pctx->rcm.ec = rdma_create_event_channel();
-    assert(pctx->rcm.ec != NULL);
+    dassert(pctx->rcm.ec != NULL);
 
     ret = rdma_create_id(pctx->rcm.ec, &pctx->rcm.id, NULL, RDMA_PS_TCP);
-    assert(ret != -1);
+    dassert(ret != -1);
 
     ret = rdma_resolve_addr(pctx->rcm.id, NULL,
                             addr->ai_addr, CONNECTION_TIMEOUT);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
-    assert(ret == 0);
+    dassert(ret == 0);
 
-    assert(pctx->rcm.event->event == RDMA_CM_EVENT_ADDR_RESOLVED);
+    dassert(pctx->rcm.event->event == RDMA_CM_EVENT_ADDR_RESOLVED);
     rdma_ack_cm_event(pctx->rcm.event);
 
     ret = rdma_resolve_route(pctx->rcm.id, CONNECTION_TIMEOUT);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
-    assert(ret == 0);
+    dassert(ret == 0);
 
-    assert(pctx->rcm.event->event == RDMA_CM_EVENT_ROUTE_RESOLVED);
+    dassert(pctx->rcm.event->event == RDMA_CM_EVENT_ROUTE_RESOLVED);
     rdma_ack_cm_event(pctx->rcm.event);
 
     ret = setup_memory_region_client(pctx, buffer, buffer_size);
-    assert (ret == 0);
+    dassert (ret == 0);
 
     dprintf("meta information setup done\n");
 
@@ -659,14 +658,14 @@ static inline void send_mr_data(rep_ctx_t *pctx)
     update_send_wr(wr, sge, IBV_WR_SEND, IBV_SEND_SIGNALED, 0, 0);
 
     ret = ibv_post_send(pctx->rcm.qp, wr, &cminfo->bad_wr);
-    assert(ret == 0);
-    assert(cminfo->bad_wr == NULL);
+    dassert(ret == 0);
+    dassert(cminfo->bad_wr == NULL);
 
     do {
         ret = ibv_poll_cq(pctx->rcm.send_cq, 1, &wc);
     } while (ret == 0);
 
-    assert(wc.status == IBV_WC_SUCCESS);
+    dassert(wc.status == IBV_WC_SUCCESS);
 }
 
 /* server side */
@@ -680,27 +679,27 @@ void setup_memory_region_server(rep_ctx_t *pctx, size_t buffer_size)
     pctx->rcm.ctx = pctx->rcm.id->verbs;
 
     pctx->rcm.pd = ibv_alloc_pd(pctx->rcm.ctx);
-    assert(pctx->rcm.pd != NULL);
+    dassert(pctx->rcm.pd != NULL);
 
     allocate_structures(pctx, NULL, buffer_size, 1);
 
     pctx->rcm.comp_channel = ibv_create_comp_channel(pctx->rcm.ctx);
-    assert(pctx->rcm.comp_channel != NULL);
+    dassert(pctx->rcm.comp_channel != NULL);
 
     /* completion queue */
     pctx->rcm.send_cq = ibv_create_cq(pctx->rcm.ctx, NUM_CQES, NULL,
                                       pctx->rcm.comp_channel, 0);
-    assert(pctx->rcm.send_cq != NULL);
+    dassert(pctx->rcm.send_cq != NULL);
 
     pctx->rcm.recv_cq = ibv_create_cq(pctx->rcm.ctx, NUM_CQES, NULL,
                                       pctx->rcm.comp_channel, 0);
-    assert(pctx->rcm.recv_cq != NULL);
+    dassert(pctx->rcm.recv_cq != NULL);
 
     setup_qp_attributes(&qp_attr, pctx);
 
     /* creating the queue-pairs */
     ret = rdma_create_qp(pctx->rcm.id, pctx->rcm.pd, &qp_attr);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     pctx->rcm.qp = pctx->rcm.id->qp;
 
@@ -722,12 +721,12 @@ void setup_memory_region_server(rep_ctx_t *pctx, size_t buffer_size)
                                 pctx->num_threads * OPS_TYPE;
 
     ret = rdma_accept(pctx->rcm.id, &cm_param);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
-    assert(ret == 0);
+    dassert(ret == 0);
 
-    assert(pctx->rcm.event->event == RDMA_CM_EVENT_ESTABLISHED);
+    dassert(pctx->rcm.event->event == RDMA_CM_EVENT_ESTABLISHED);
 
     rdma_ack_cm_event(pctx->rcm.event);
 
@@ -746,31 +745,31 @@ int setup_region_server(rep_ctx_t *pctx)
     dprintf("setting up the meta information on the server side\n");
 
     pctx->rcm.ec = rdma_create_event_channel();
-    assert(pctx->rcm.ec != NULL);
+    dassert(pctx->rcm.ec != NULL);
 
     ret = rdma_create_id(pctx->rcm.ec, &pctx->rcm.sid, NULL, RDMA_PS_TCP);
-    assert(ret != -1);
+    dassert(ret != -1);
 
     memset(&addr, 0, sizeof(addr));
     addr.sin6_family = AF_INET6;
 
     ret = rdma_bind_addr(pctx->rcm.sid, (struct sockaddr *)&addr);
-    assert(ret != -1);
+    dassert(ret != -1);
 
     ret = rdma_listen(pctx->rcm.sid, SERVER_LISTEN_BACKLOG);
-    assert(ret != -1);
+    dassert(ret != -1);
 
     port = ntohs(rdma_get_src_port(pctx->rcm.sid));
     buffer_size = server_setget_info(port, &pctx->num_threads,
                                      &pctx->persist_with_reads);
 
     ret = rdma_get_cm_event(pctx->rcm.ec, &pctx->rcm.event);
-    assert(ret == 0);
+    dassert(ret == 0);
 
     pctx->rcm.id = pctx->rcm.event->id;
     rdma_ack_cm_event(pctx->rcm.event);
 
-    assert(pctx->rcm.event->event == RDMA_CM_EVENT_CONNECT_REQUEST);
+    dassert(pctx->rcm.event->event == RDMA_CM_EVENT_CONNECT_REQUEST);
 
     setup_memory_region_server(pctx, buffer_size);
 

@@ -16,6 +16,7 @@
 #include <time.h>
 #include <assert.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
 #include "arch.h"
 
@@ -25,8 +26,18 @@
 #define dprintf(__fmt, ...) do {                                               \
     fprintf(stderr, "[DBG: %s: %d] " __fmt, __func__, __LINE__, ##__VA_ARGS__);\
     } while (0)
+#define dassert(cond)                                                          \
+        do {                                                                   \
+                if (!(cond)) {                                                 \
+                        printf("[%s, %s: %d] assertion failer: %s: ",          \
+                                __FILE__, __func__, __LINE__, #cond);          \
+                        perror("");                                            \
+                        assert(cond);                                          \
+                }                                                              \
+        } while(0);
 #else
 #define dprintf(__fmt, ...) do { } while(0)
+#define dassert(cond) assert(cond)
 #endif
 
 #define get_time_diff(tv1, tv2)                                                \

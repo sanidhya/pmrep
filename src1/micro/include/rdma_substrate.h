@@ -218,8 +218,8 @@ typedef struct rep_ctx {
 #endif
 } rep_ctx_t ____cacheline_aligned;
 
-int setup_region_client(rep_ctx_t *pctx, uint8_t *buffer, size_t buffer_size,
-                        int num_threads, int persist_with_reads);
+int setup_region_client(rep_ctx_t *pctx, uint8_t *buffer,
+                        size_t buffer_size, int num_threads);
 void clear_region(rep_ctx_t *pctx, int free_buffer);
 
 void flush_data_simple(rep_ctx_t *pctx, void *addr,
