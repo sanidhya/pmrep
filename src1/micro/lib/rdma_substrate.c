@@ -86,7 +86,7 @@ struct error_name persistence_type[] = {
 };
 
 inline char *get_value(int value, struct error_name *name_array,
-                              char *data, size_t size)
+                       char *data, size_t size)
 {
     strncpy(data, name_array[value].name, size);
     data[size - 1] = '\0';
@@ -236,7 +236,7 @@ static inline void update_send_wr(struct ibv_send_wr *wr, struct ibv_sge *sge,
         wr->wr.rdma.rkey = rkey;
     }
     if ((opcode == IBV_WR_RDMA_WRITE ||
-        opcode == IBV_WR_RDMA_WRITE_WITH_IMM) &&
+         opcode == IBV_WR_RDMA_WRITE_WITH_IMM) &&
         sge->length <= MAX_INLINE_DATA)
         wr->send_flags |= IBV_SEND_INLINE;
 }
@@ -287,7 +287,7 @@ static inline void clean_write_list(rep_ctx_t *pctx, int thread_id)
 }
 
 inline void flush_data_simple(rep_ctx_t *pctx, void *addr,
-                       size_t bytes, int lazy_write, int thread_id)
+                              size_t bytes, int lazy_write, int thread_id)
 {
     struct thread_block *tblock = &pctx->thread_blocks[thread_id];
     struct buf_metainfo *minfo = &tblock->flush_bufinfo;
@@ -437,7 +437,7 @@ static void allocate_structures(rep_ctx_t *pctx, uint8_t *buffer, size_t size,
     /* allocate all the send and recv wrnodes */
     dprintf("sizeof of total_send_wrs: %d\n", total_send_wrs);
     pctx->persist_wrnodes = mem_alloc_pgalign(sizeof(struct swr_list_info) *
-                                           total_send_wrs, "Send wrs");
+                                              total_send_wrs, "Send wrs");
     dassert(pctx->persist_wrnodes);
     for (i = 0; i < total_send_wrs; ++i)
         pctx->persist_wrnodes[i].wr.wr_id = i;
@@ -539,7 +539,7 @@ static inline void receive_mr_data(rep_ctx_t *pctx)
     dprintf("Got data\n");
     for (i = 0; i < pctx->num_threads * OPS_TYPE; ++i) {
         dprintf("%lu: buf: %lx remote-key: %u\n", i, pctx->remote_data[i].buf_va,
-               pctx->remote_data[i].buf_rkey);
+                pctx->remote_data[i].buf_rkey);
     }
     post_recv_wr(pctx->rcm.qp, rnode);
 }
@@ -671,7 +671,7 @@ static inline void send_mr_data(rep_ctx_t *pctx)
     dprintf("Sending data\n");
     for (i = 0; i < pctx->num_threads * OPS_TYPE; ++i) {
         dprintf("%lu: buf: %lx remote-key: %u\n", i, pctx->remote_data[i].buf_va,
-               pctx->remote_data[i].buf_rkey);
+                pctx->remote_data[i].buf_rkey);
     }
 
     memcpy(cminfo->buffer, pctx->remote_data, size);
@@ -739,7 +739,7 @@ void setup_memory_region_server(rep_ctx_t *pctx, size_t buffer_size)
     cm_param.responder_resources = 1;
     cm_param.private_data = pctx->remote_data;
     cm_param.private_data_len = sizeof(struct remote_regdata) *
-                                pctx->num_threads * OPS_TYPE;
+        pctx->num_threads * OPS_TYPE;
 
     ret = rdma_accept(pctx->rcm.id, &cm_param);
     dassert(ret == 0);

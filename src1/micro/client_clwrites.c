@@ -10,28 +10,28 @@
 #define BUFFER_SIZE (40960)
 
 static struct {
-   volatile int start;
-   union {
-	struct {
-	    volatile int ready;
-	    volatile uint64_t latency;
-        volatile double tput;
-	};
-	char pad[L1D_CACHELINE_BYTES];
-   } cpu[MAX_CPU] ____cacheline_aligned;
+    volatile int start;
+    union {
+        struct {
+            volatile int ready;
+            volatile uint64_t latency;
+            volatile double tput;
+        };
+        char pad[L1D_CACHELINE_BYTES];
+    } cpu[MAX_CPU] ____cacheline_aligned;
 } *sync_state;
 
 rep_ctx_t pctx;
 struct cmd_opt opt = {
-        .server_ip = "192.168.0.1",
-        .tcp_conn_port = 0,
-        .num_threads = 1,
-        .iterations = 1000,
-        .allow_inlined_data = 0,
-        .write_batch_count = 0,
-        .enable_lazy_writes = 0,
-        .const_cores = 0,
-        .duration = 0
+    .server_ip = "192.168.0.1",
+    .tcp_conn_port = 0,
+    .num_threads = 1,
+    .iterations = 1000,
+    .allow_inlined_data = 0,
+    .write_batch_count = 0,
+    .enable_lazy_writes = 0,
+    .const_cores = 0,
+    .duration = 0
 };
 
 static inline void poll_send_cq(rep_ctx_t *pctx, uint64_t id, int thread_id)
@@ -90,8 +90,8 @@ static inline void update_send_wr(struct ibv_send_wr *wr, struct ibv_sge *sge,
     }
 #if 0
     if ((opcode == IBV_WR_RDMA_WRITE ||
-        opcode == IBV_WR_RDMA_WRITE_WITH_IMM ||
-        opcode == IBV_WR_SEND) &&
+         opcode == IBV_WR_RDMA_WRITE_WITH_IMM ||
+         opcode == IBV_WR_SEND) &&
         sge->length <= MAX_INLINE_DATA)
         wr->send_flags |= IBV_SEND_INLINE;
 #endif
@@ -162,28 +162,28 @@ void *run_bench(void *arg)
 
 static void waitup(void)
 {
-        uint64_t tot, max;
-	int i;
-	double avg = 0.0;
+    uint64_t tot, max;
+    int i;
+    double avg = 0.0;
 
-	tot = 0;
-	max = 0;
-	for (i = 0; i < pctx.num_threads; i++) {
-		while (!sync_state->cpu[i].latency)
-			nop_pause();
+    tot = 0;
+    max = 0;
+    for (i = 0; i < pctx.num_threads; i++) {
+        while (!sync_state->cpu[i].latency)
+            nop_pause();
 
-		tot += sync_state->cpu[i].latency;
-		if (sync_state->cpu[i].latency > max)
-			max = sync_state->cpu[i].latency;
-		avg += (double)sync_state->cpu[i].latency;
-	}
+        tot += sync_state->cpu[i].latency;
+        if (sync_state->cpu[i].latency > max)
+            max = sync_state->cpu[i].latency;
+        avg += (double)sync_state->cpu[i].latency;
+    }
 
-        avg /= (double)opt.iterations;
-        avg /= (double)pctx.num_threads;
-        avg /= 1000.0;
+    avg /= (double)opt.iterations;
+    avg /= (double)pctx.num_threads;
+    avg /= 1000.0;
 
-	printf("threads: %d iterations: %d avg-latency: %.3lf\n",
-	       pctx.num_threads, opt.iterations, avg);
+    printf("threads: %d iterations: %d avg-latency: %.3lf\n",
+           pctx.num_threads, opt.iterations, avg);
 }
 
 int main(int argc, char *argv[])
