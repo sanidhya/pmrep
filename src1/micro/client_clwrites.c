@@ -34,88 +34,12 @@ struct cmd_opt opt = {
     .duration = 0
 };
 
-static inline void poll_send_cq(rep_ctx_t *pctx, uint64_t id, int thread_id)
-{
-    int n = 0;
-    char correct_msg[L1D_CACHELINE_BYTES], wrong_msg[L1D_CACHELINE_BYTES];
-    struct ibv_wc wc = { };
-
-    do {
-        n = ibv_poll_cq(pctx->rcm.send_cq, 1, &wc);
-        dprintf("thread: %d, looping for id: %lu\n", thread_id, id);
-    } while (n == 0);
-
-    if (wc.status != IBV_WC_SUCCESS) {
-        fprintf(stderr, "Persist: expected: %s, got: %s\n",
-                get_wr_status_name(IBV_WC_SUCCESS,
-                                   correct_msg, L1D_CACHELINE_BYTES),
-                get_wr_status_name(wc.status,
-                                   wrong_msg, L1D_CACHELINE_BYTES));
-        dassert(0);
-
-    }
-    dassert(wc.wr_id <= pctx->total_flush_wrs + pctx->total_persist_wrs);
-    dprintf("thread: %d wc.wr_id: %lu id: %lu\n", thread_id, wc.wr_id, id);
-    pctx->persist_cq_bits[wc.wr_id] = 1;
-    smp_wmb();
-
-    while (pctx->persist_cq_bits[id] == 0) {
-        smp_rmb();
-    }
-}
-
 static void inline update_sge(struct ibv_sge *sge, uint64_t addr,
                               uint32_t length, uint32_t lkey)
 {
     sge->addr = addr;
     sge->length = length;
     sge->lkey = lkey;
-}
-
-static inline void update_send_wr(struct ibv_send_wr *wr, struct ibv_sge *sge,
-                                  int opcode, int send_flags,
-                                  uint64_t raddr, uint32_t rkey)
-{
-    wr->opcode = opcode;
-    wr->next = NULL;
-    wr->sg_list = sge;
-    wr->num_sge = 1;
-    if (send_flags == IBV_SEND_SIGNALED)
-        wr->send_flags = send_flags;
-    if (opcode == IBV_WR_RDMA_WRITE ||
-        opcode == IBV_WR_RDMA_WRITE_WITH_IMM ||
-        opcode == IBV_WR_RDMA_READ) {
-        wr->wr.rdma.remote_addr = raddr;
-        wr->wr.rdma.rkey = rkey;
-    }
-#if 0
-    if ((opcode == IBV_WR_RDMA_WRITE ||
-         opcode == IBV_WR_RDMA_WRITE_WITH_IMM ||
-         opcode == IBV_WR_SEND) &&
-        sge->length <= MAX_INLINE_DATA)
-        wr->send_flags |= IBV_SEND_INLINE;
-#endif
-}
-
-static inline void flush_data_remote(rep_ctx_t *pctx, uint8_t *buffer,
-                                     size_t size, int n, int thread_id)
-{
-    struct thread_block *tblock = &pctx->thread_blocks[thread_id];
-    struct buf_metainfo *minfo = &tblock->flush_bufinfo;
-    struct swr_list_info *swr_node =
-        &pctx->persist_wrnodes[thread_id * pctx->pt_flush_wrs + n];
-    struct ibv_send_wr *wr = &swr_node->wr;
-    struct ibv_sge *sge = &swr_node->sge;
-    off_t offset = (uintptr_t)buffer - (uintptr_t)minfo->buffer;
-    int ret = 0;
-
-    update_sge(sge, (uintptr_t)buffer, size, minfo->mr->lkey);
-    update_send_wr(wr, sge, IBV_WR_RDMA_WRITE, 0,
-                   minfo->remote_data->buf_va + offset,
-                   minfo->remote_data->buf_rkey);
-    ret = ibv_post_send(pctx->rcm.qp, wr, &swr_node->bad_wr);
-    dassert(ret == 0);
-    dassert(swr_node->bad_wr == NULL);
 }
 
 void *run_bench(void *arg)
@@ -143,15 +67,12 @@ void *run_bench(void *arg)
     for (i = 0; i < opt.iterations; i++) {
         size_t j = 0;
         for (j = 0; j < opt.write_batch_count; ++j) {
-            //start += L1D_CACHELINE_BYTES;
-            //start += PAGE_SIZE;
             if (start >= eindex)
                 start = sindex;
             if (start + opt.buffer_size > eindex)
                 start -= (opt.buffer_size + 1);
             buf[start] = (count++ + 48)%10;
             flush_data_simple(&pctx, buf + start, opt.buffer_size, j, tid);
-            //burn_cycles(opt.flush_latency);
         }
     }
     clock_gettime(CLOCK_MONOTONIC, &end_t);
